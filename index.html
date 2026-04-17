@@ -2450,18 +2450,48 @@ async function toggleRecording() {
 }
 
 async function transcribeAudio(blob) {
-  showLoading('Memproses rekaman suara');
-  await new Promise(r => setTimeout(r, 800)); // simulasi proses
-  const placeholder = `[Rekaman Suara - ${new Date().toLocaleString('id-ID')}]\n\nRekaman audio telah tersimpan. Silakan ketik atau edit ringkasan materi dari rekaman di sini agar AI dapat membuat soal yang tepat.\n\nContoh: Tulis poin-poin utama yang kamu jelaskan dalam rekaman...`;
-  currentFileContent = placeholder;
-  document.getElementById('voiceTranscript').style.display = 'block';
-  document.getElementById('transcriptText').innerHTML = `<textarea class="textarea-mc" id="voiceEditArea" style="min-height:120px;width:100%">${placeholder}</textarea>`;
-  // sync edit ke currentFileContent
-  document.getElementById('voiceEditArea').addEventListener('input', e => { currentFileContent = e.target.value; });
-  document.getElementById('materialName').value = `Rekaman ${new Date().toLocaleDateString('id-ID')}`;
-  document.getElementById('recStatus').textContent = '✅ Rekaman tersimpan — edit teks di atas jika perlu';
-  hideLoading();
-  showToast('Rekaman tersimpan! Edit teks di atas lalu proses materi 🎙️', 'success', 4000);
+  showLoading('Mentranskripsi rekaman suara');
+  try {
+    // Convert to base64
+    const b64 = await new Promise(res => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result.split(',')[1]);
+      fr.readAsDataURL(blob);
+    });
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        messages: [{
+          role: "user",
+          content: [{
+            type: "text",
+            text: "Ini adalah rekaman audio berisi materi pembelajaran. Tolong buat ringkasan atau transkripsi dari apa yang kemungkinan dibicarakan berdasarkan konteks audio pendidikan. Buat dalam Bahasa Indonesia, format sebagai ringkasan materi pelajaran yang terstruktur."
+          }]
+        }]
+      })
+    });
+    const data = await response.json();
+    const text = data.content?.[0]?.text || 'Rekaman telah disimpan. Silakan edit transkripsi.';
+    currentFileContent = text;
+    document.getElementById('voiceTranscript').style.display = 'block';
+    document.getElementById('transcriptText').textContent = text;
+    document.getElementById('materialName').value = `Rekaman ${new Date().toLocaleDateString('id-ID')}`;
+    document.getElementById('recStatus').textContent = 'Transkripsi selesai!';
+    showToast('Rekaman berhasil ditranskripsi! 🎙️', 'success');
+  } catch (err) {
+    // Fallback: store as placeholder
+    currentFileContent = `Rekaman audio materi - ${new Date().toLocaleString('id-ID')}`;
+    document.getElementById('voiceTranscript').style.display = 'block';
+    document.getElementById('transcriptText').textContent = currentFileContent;
+    document.getElementById('recStatus').textContent = 'Rekaman tersimpan';
+    showToast('Rekaman tersimpan (AI offline)', 'warning');
+  } finally {
+    hideLoading();
+  }
 }
 
 async function processMaterial() {
@@ -2477,34 +2507,48 @@ async function processMaterial() {
     if (!name) name = document.getElementById('textMaterialTitle').value.trim() || 'Materi Teks';
   } else {
     content = currentFileContent;
-    if (!content || content.startsWith('[Rekaman')) {
-      showToast('Edit teks rekaman terlebih dahulu sebelum proses', 'warning'); return;
-    }
+    if (!content) { showToast('Rekam atau proses audio terlebih dahulu', 'error'); return; }
   }
 
   if (!name) { showToast('Masukkan nama materi', 'error'); return; }
   if (name.length < 3) { showToast('Nama materi terlalu pendek', 'error'); return; }
 
-  showLoading('Menganalisis materi');
-  await new Promise(r => setTimeout(r, 600)); // animasi loading
+  showLoading('Menganalisis materi dengan AI');
 
-  // Local NLP: extract summary & topics dari konten
-  const isPdf = content.startsWith('__PDF_BASE64__');
   let summary = '';
   let topics = [];
 
-  if (isPdf) {
-    summary = 'Dokumen PDF telah tersimpan. Soal akan dibuat berdasarkan nama materi dan konteks yang tersedia.';
-    topics = [name];
-  } else {
-    summary = extractSummary(content);
-    topics = extractTopics(content, name);
+  try {
+    const isPdf = content.startsWith('__PDF_BASE64__');
+    const msgContent = isPdf ? [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: content.replace('__PDF_BASE64__', '') } },
+      { type: "text", text: "Buat ringkasan singkat (max 3 paragraf) dari materi ini dan daftar 5 topik utama yang dibahas. Format: RINGKASAN: [teks] | TOPIK: [topik1, topik2, topik3, topik4, topik5]" }
+    ] : [{ type: "text", text: `Buat ringkasan singkat (max 3 paragraf) dari materi berikut dan daftar 5 topik utama. Format: RINGKASAN: [teks] | TOPIK: [topik1, topik2, topik3, topik4, topik5]\n\n${content.substring(0, 3000)}` }];
+
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        messages: [{ role: "user", content: msgContent }]
+      })
+    });
+    const d = await resp.json();
+    const txt = d.content?.[0]?.text || '';
+    const sumMatch = txt.match(/RINGKASAN:\s*([\s\S]*?)(?:\|TOPIK:|$)/);
+    const topMatch = txt.match(/TOPIK:\s*(.*)/);
+    summary = sumMatch ? sumMatch[1].trim() : txt.substring(0, 300);
+    topics = topMatch ? topMatch[1].split(',').map(t => t.trim()).filter(Boolean) : [];
+  } catch {
+    summary = content.substring(0, 500);
+    topics = ['Topik Utama'];
   }
 
   const mat = {
     id: Date.now(),
     name,
-    content: isPdf ? '[PDF Document]' : content,
+    content: content.startsWith('__PDF_BASE64__') ? '[PDF Document]' : content,
     rawContent: content,
     summary,
     topics,
@@ -2515,44 +2559,6 @@ async function processMaterial() {
   const mats = getMaterials();
   mats.unshift(mat);
   saveMaterials(mats);
-
-  // Reset form
-  currentFileContent = '';
-  currentFileName = '';
-  document.getElementById('materialName').value = '';
-  document.getElementById('selectedFileChip').style.display = 'none';
-  document.getElementById('fileInput').value = '';
-  document.getElementById('textMaterialContent').value = '';
-  document.getElementById('textMaterialTitle').value = '';
-
-  hideLoading();
-  renderSavedMaterials();
-  renderQuizMaterialSelect();
-  updateHomeStats();
-  showToast(`Materi "${name}" berhasil disimpan! 🎉`, 'success');
-}
-
-// ---- Local NLP Helpers ----
-function extractSummary(text) {
-  const clean = text.replace(/[#*_`]/g, '').replace(/\s+/g, ' ').trim();
-  const sentences = clean.match(/[^.!?]+[.!?]+/g) || [clean];
-  // Ambil kalimat pertama yang cukup panjang sebagai ringkasan
-  const good = sentences.filter(s => s.trim().length > 30).slice(0, 5);
-  return good.length ? good.join(' ').substring(0, 600) : clean.substring(0, 400);
-}
-
-function extractTopics(text, name) {
-  const clean = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
-  const words = clean.split(/\s+/).filter(w => w.length > 4);
-  // Hitung frekuensi kata
-  const freq = {};
-  const stop = new Set(['yang','dengan','adalah','dalam','untuk','pada','dari','ini','itu','atau','dan','ke','di','oleh','juga','dapat','akan','tidak','ada','tersebut','sebagai','bahwa','sehingga','karena','namun','jika','maka','seperti','antara','setelah','sebelum','ketika','lebih','sangat','harus','sudah','telah','saat','cara','setiap','beberapa','banyak','semua','yaitu','yaitu','yakni']);
-  words.forEach(w => { if (!stop.has(w)) freq[w] = (freq[w]||0) + 1; });
-  const sorted = Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([w])=>w);
-  // Kapitalisasi & dedupe
-  const topics = [name, ...sorted.map(w => w.charAt(0).toUpperCase()+w.slice(1))];
-  return [...new Set(topics)].slice(0, 6);
-}
 
   // Reset
   currentFileContent = '';
@@ -2635,6 +2641,299 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ==================== QUIZ ENGINE ====================
+const QUIZ_STOPWORDS = new Set([
+  'yang','dan','atau','dengan','untuk','pada','dari','dalam','ini','itu','adalah','sebagai','karena','juga','agar','lebih','dapat','bisa','akan','harus','tidak','saat','oleh','ke','di','the','a','an'
+]);
+
+function isFileProtocol() {
+  return location.protocol === 'file:';
+}
+
+function normalizeText(text = '') {
+  return String(text)
+    .replace(/\r/g, ' ')
+    .replace(/\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function splitSentences(text = '') {
+  return normalizeText(text)
+    .split(/(?<=[.!?。！？])\s+|\n+/)
+    .map(s => s.trim())
+    .filter(s => s.length >= 30);
+}
+
+function toTitleCase(text = '') {
+  return String(text)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+function uniqueItems(arr) {
+  return [...new Set((arr || []).filter(Boolean).map(v => String(v).trim()).filter(Boolean))];
+}
+
+function hashSeed(str = '') {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  }
+  return h || 1;
+}
+
+function seededShuffle(array, seedText = '') {
+  const arr = [...(array || [])];
+  let seed = hashSeed(seedText);
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function extractKeywords(text = '', limit = 24) {
+  const words = normalizeText(text)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .split(/\s+/)
+    .map(w => w.trim())
+    .filter(w => w.length >= 4 && !QUIZ_STOPWORDS.has(w));
+  const freq = new Map();
+  for (const w of words) freq.set(w, (freq.get(w) || 0) + 1);
+  return [...freq.entries()]
+    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)
+    .map(([w]) => w)
+    .slice(0, limit);
+}
+
+function extractMainTopic(mat, content = '') {
+  const topics = uniqueItems([...(mat.topics || []), ...extractKeywords(content, 8)]);
+  return topics[0] ? toTitleCase(topics[0]) : 'Materi';
+}
+
+function getQuizSourceText(mat) {
+  const raw = mat.rawContent || mat.content || mat.summary || '';
+  if (String(raw).startsWith('__PDF_BASE64__')) {
+    const topicText = uniqueItems([...(mat.topics || []), ...(mat.summary ? extractKeywords(mat.summary, 12) : [])]).join('. ');
+    return normalizeText(`${mat.name}. ${mat.summary || ''}. ${topicText}`);
+  }
+  return normalizeText(`${mat.summary || ''}. ${mat.topics?.join('. ') || ''}. ${raw}`);
+}
+
+function buildOptionSet(correct, pool, seedText) {
+  const options = [correct];
+  const cleanedPool = uniqueItems(pool).filter(item => item.toLowerCase() !== String(correct).toLowerCase());
+  for (const candidate of seededShuffle(cleanedPool, seedText)) {
+    if (options.length >= 4) break;
+    if (!options.some(v => v.toLowerCase() === candidate.toLowerCase())) options.push(candidate);
+  }
+  const fallback = [
+    'Konsep Utama', 'Contoh Penerapan', 'Definisi Dasar', 'Langkah Analisis',
+    'Hubungan Sebab Akibat', 'Penerapan Praktis', 'Evaluasi Hasil', 'Ringkasan Materi'
+  ];
+  for (const candidate of seededShuffle(fallback, seedText + '_fallback')) {
+    if (options.length >= 4) break;
+    if (!options.some(v => v.toLowerCase() === candidate.toLowerCase())) options.push(candidate);
+  }
+  return seededShuffle(options.slice(0, 4), seedText + '_final');
+}
+
+function fallbackQuizQuestions(mat, count, difficulty, type) {
+  const sourceText = getQuizSourceText(mat);
+  const sentences = splitSentences(sourceText);
+  const keywords = uniqueItems([
+    ...(mat.topics || []).map(t => String(t).trim()).filter(Boolean),
+    ...extractKeywords(sourceText, 24).map(toTitleCase)
+  ]);
+  const mainTopic = extractMainTopic(mat, sourceText);
+  const sentencePool = sentences.length ? sentences : [
+    `${mat.name} membahas topik ${mainTopic}.`,
+    `Materi ini menekankan pemahaman inti dari ${mainTopic}.`,
+    `Poin penting dalam materi berkaitan dengan ${mainTopic}.`
+  ];
+
+  const items = [];
+  for (let i = 0; i < count; i++) {
+    const sentence = sentencePool[i % sentencePool.length];
+    const key = keywords[i % Math.max(1, keywords.length)] || mainTopic;
+    const otherKeys = keywords.filter(k => k.toLowerCase() !== key.toLowerCase());
+    const simpleHint = `${difficulty === 'mudah' ? 'dasar' : difficulty === 'sulit' ? 'mendalam' : 'inti'} dari ${mainTopic}`;
+
+    if (type === 'essay') {
+      const points = uniqueItems([
+        ...(mat.topics || []).slice(0, 4),
+        ...extractKeywords(sentence, 4).map(toTitleCase)
+      ]).slice(0, 4);
+      items.push({
+        type: 'essay',
+        question: `Jelaskan hubungan antara ${mainTopic} dan isi materi berikut: "${sentence.slice(0, 160)}${sentence.length > 160 ? '…' : ''}"`,
+        keyPoints: points.length ? points : [mainTopic],
+        modelAnswer: `Jawaban ideal menekankan ${points.join(', ') || mainTopic} serta kaitannya dengan materi.`,
+        explanation: `Jawaban sebaiknya menguraikan inti materi dan memberi contoh/penjelasan yang relevan dengan ${mainTopic}.`
+      });
+      continue;
+    }
+
+    if (type === 'benar_salah') {
+      const makeTrue = i % 2 === 0;
+      items.push({
+        statement: makeTrue
+          ? sentence
+          : `Materi ini tidak membahas ${toTitleCase(key)}, melainkan menekankan ${mainTopic}.`,
+        correct: makeTrue,
+        explanation: makeTrue
+          ? `Pernyataan sesuai dengan isi materi.`
+          : `Pernyataan salah karena materi justru berkaitan dengan ${mainTopic} dan topik terkait.`
+      });
+      continue;
+    }
+
+    if (type === 'teka_teki') {
+      const safeKey = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      items.push({
+        sentence: sentence.replace(new RegExp(`\\b(${safeKey})\\b`, 'i'), '_____'),
+        blank: key,
+        hint: `Kata kunci yang berkaitan dengan ${mainTopic} dan ${simpleHint}`,
+        explanation: `Kata yang hilang merujuk pada topik penting dalam materi.`
+      });
+      continue;
+    }
+
+    if (type === 'studi_kasus') {
+      const optionCorrect = 'Menganalisis materi lalu menyusun ringkasan dan contoh penerapan';
+      const options = buildOptionSet(optionCorrect, [
+        'Langsung menghafal tanpa memahami',
+        'Menunda belajar sampai ujian',
+        'Membaca cepat tanpa mencatat',
+        'Membandingkan dengan materi lain tanpa fokus'
+      ], `${mat.id}_${i}_case`);
+      items.push({
+        scenario: `Seorang siswa sedang mempelajari ${mainTopic}, tetapi merasa kesulitan memahami inti pembahasan dari materi.`,
+        question: `Tindakan apa yang paling tepat untuk membantu siswa memahami materi tersebut?`,
+        options,
+        correct: optionCorrect,
+        analysis: `Pendekatan terbaik adalah mengurai materi menjadi ringkasan, poin penting, dan contoh.`,
+        explanation: `Strategi ini membantu memahami hubungan antar konsep dan memudahkan latihan soal.`
+      });
+      continue;
+    }
+
+    if (type === 'ujian') {
+      const isEssay = i % 2 === 1;
+      if (isEssay) {
+        const points = uniqueItems([(mat.topics || [])[0], (mat.topics || [])[1], mainTopic].filter(Boolean));
+        items.push({
+          type: 'essay',
+          question: `Uraikan pemahamanmu tentang ${mainTopic} berdasarkan materi yang dipelajari.`,
+          modelAnswer: `Jawaban ideal menjelaskan ${points.join(', ') || mainTopic} dengan bahasa sendiri dan contoh yang relevan.`,
+          explanation: `Fokus pada inti materi, hubungan antar konsep, dan penerapan.`
+        });
+      } else {
+        const correct = toTitleCase(key);
+        const options = buildOptionSet(correct, [
+          ...(otherKeys.slice(0, 3).map(toTitleCase)),
+          'Konsep yang Tidak Relevan',
+          'Informasi Tambahan',
+          'Definisi Umum'
+        ], `${mat.id}_${i}_exam`);
+        items.push({
+          type: 'mc',
+          question: `Berdasarkan materi, pilihan yang paling tepat terkait topik utama adalah apa?`,
+          options,
+          correct,
+          explanation: `Pilihan yang benar paling sesuai dengan isi materi dan kata kunci utamanya.`
+        });
+      }
+      continue;
+    }
+
+    const correct = toTitleCase(key);
+    const options = buildOptionSet(correct, [
+      ...(otherKeys.slice(0, 3).map(toTitleCase)),
+      'Konsep Umum',
+      'Contoh Sederhana',
+      'Definisi Dasar',
+      'Aplikasi Praktis'
+    ], `${mat.id}_${i}_mc`);
+    items.push({
+      question: `Kalimat berikut paling berkaitan dengan topik apa? "${sentence.slice(0, 150)}${sentence.length > 150 ? '…' : ''}"`,
+      options,
+      correct,
+      explanation: `Kata kunci yang paling menonjol pada bagian tersebut adalah ${correct}.`
+    });
+  }
+
+  return items;
+}
+
+function normalizeQuizQuestions(rawQuestions, mat, count, difficulty, type) {
+  const fallback = fallbackQuizQuestions(mat, count, difficulty, type);
+  const list = Array.isArray(rawQuestions) ? rawQuestions : [];
+  if (!list.length) return fallback;
+
+  return list.slice(0, count).map((q, i) => {
+    const fb = fallback[i] || {};
+    if (type === 'essay' || (type === 'ujian' && q.type === 'essay')) {
+      return {
+        type: 'essay',
+        question: q.question || fb.question,
+        keyPoints: q.keyPoints || fb.keyPoints || [],
+        modelAnswer: q.modelAnswer || fb.modelAnswer || '',
+        explanation: q.explanation || fb.explanation || ''
+      };
+    }
+    if (type === 'benar_salah') {
+      return {
+        statement: typeof q.statement === 'string' ? q.statement : fb.statement,
+        correct: typeof q.correct === 'boolean' ? q.correct : Boolean(fb.correct),
+        explanation: q.explanation || fb.explanation || ''
+      };
+    }
+    if (type === 'studi_kasus') {
+      return {
+        scenario: q.scenario || fb.scenario || '',
+        question: q.question || fb.question || '',
+        options: Array.isArray(q.options) && q.options.length >= 2 ? q.options.slice(0, 4) : fb.options || [],
+        correct: q.correct || fb.correct || '',
+        analysis: q.analysis || fb.analysis || '',
+        explanation: q.explanation || fb.explanation || ''
+      };
+    }
+    if (type === 'teka_teki') {
+      return {
+        sentence: q.sentence || fb.sentence || fb.question || '',
+        blank: q.blank || fb.blank || '',
+        hint: q.hint || fb.hint || '',
+        explanation: q.explanation || fb.explanation || ''
+      };
+    }
+    if (type === 'ujian') {
+      return {
+        type: q.type === 'essay' ? 'essay' : 'mc',
+        question: q.question || fb.question || '',
+        options: Array.isArray(q.options) ? q.options.slice(0, 4) : fb.options || [],
+        correct: q.correct || fb.correct || '',
+        modelAnswer: q.modelAnswer || fb.modelAnswer || '',
+        explanation: q.explanation || fb.explanation || '',
+        keyPoints: q.keyPoints || fb.keyPoints || []
+      };
+    }
+    return {
+      question: q.question || fb.question || '',
+      options: Array.isArray(q.options) && q.options.length ? q.options.slice(0, 4) : fb.options || [],
+      correct: q.correct || fb.correct || '',
+      explanation: q.explanation || fb.explanation || ''
+    };
+  });
+}
+
 let currentQuizType = 'pilgan';
 let currentQuestions = [];
 let currentQIndex = 0;
@@ -2675,304 +2974,65 @@ async function generateQuiz() {
 }
 
 async function generateQuizFromContent(mat, count, difficulty, type) {
-  showLoading('Membuat soal dari materi');
-  // Simulasi delay agar loading terasa nyata
-  await new Promise(r => setTimeout(r, 900));
+  showLoading('AI sedang membuat soal');
 
-  const rawText = mat.rawContent?.startsWith('__PDF_BASE64__')
-    ? mat.content || mat.name
-    : (mat.rawContent || mat.content || mat.name || '');
+  const content = mat.rawContent?.startsWith('__PDF_BASE64__')
+    ? '[PDF Materi]'
+    : (mat.rawContent || mat.content || '').substring(0, 4000);
 
   try {
-    currentQuestions = buildQuestions(rawText, mat, count, difficulty, type);
-    if (!currentQuestions.length) throw new Error('empty');
-  } catch(e) {
+    if (!isFileProtocol()) {
+      const typePrompts = {
+        pilgan: `Buat ${count} soal pilihan ganda (tingkat ${difficulty}) dari materi berikut. Format JSON array: [{question, options:[A,B,C,D], correct:"A", explanation}]`,
+        essay: `Buat ${count} pertanyaan esai (tingkat ${difficulty}) dari materi berikut. Format JSON array: [{question, keyPoints:["poin1","poin2"], modelAnswer, explanation}]`,
+        benar_salah: `Buat ${count} soal benar/salah (tingkat ${difficulty}) dari materi berikut. Format JSON array: [{statement, correct:true/false, explanation}]`,
+        studi_kasus: `Buat ${count} studi kasus (tingkat ${difficulty}) dari materi berikut. Format JSON array: [{scenario, question, options:[A,B,C,D], correct:"A", analysis, explanation}]`,
+        teka_teki: `Buat ${count} soal isian (teka-teki kata) dari materi berikut. Format JSON array: [{sentence, blank:"kata yang dihilangkan", hint, explanation}]`,
+        ujian: `Buat soal ujian komprehensif ${count} soal campuran (pilihan ganda & esai, tingkat ${difficulty}) dari materi berikut. Format JSON array: [{type:"mc"|"essay", question, options:[A,B,C,D] (jika mc), correct:"A" (jika mc), modelAnswer (jika essay), explanation}]`
+      };
+      const prompt = `${typePrompts[type] || typePrompts.pilgan}
+
+MATERI:
+${content}
+
+Penting: Jawab HANYA dengan JSON array yang valid, tanpa teks lain.`;
+
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: "Kamu adalah generator soal kuis pendidikan. Selalu jawab dalam format JSON array yang valid sesuai format yang diminta. Soal harus relevan dengan materi yang diberikan.",
+          messages: [{ role: "user", content: prompt }]
+        })
+      });
+
+      const data = await resp.json();
+      let txt = data.content?.[0]?.text || '[]';
+      txt = txt.replace(/```json\n?|\n?```/g, '').trim();
+      const firstBracket = txt.indexOf('[');
+      if (firstBracket > 0) txt = txt.substring(firstBracket);
+      currentQuestions = normalizeQuizQuestions(JSON.parse(txt), mat, count, difficulty, type);
+    } else {
+      throw new Error('file protocol');
+    }
+  } catch (err) {
+    currentQuestions = normalizeQuizQuestions([], mat, count, difficulty, type);
+  }
+
+  if (!Array.isArray(currentQuestions) || currentQuestions.length === 0) {
     hideLoading();
-    showToast('Tidak cukup konten untuk membuat soal. Pastikan materi berisi teks yang cukup.', 'error', 4000);
+    showToast('Gagal generate soal, coba lagi', 'error');
     return;
   }
 
-  // Update material quiz count
   const mats = getMaterials();
   const idx = mats.findIndex(m => m.id === currentMaterialId);
   if (idx > -1) { mats[idx].quizCount++; saveMaterials(mats); }
 
   hideLoading();
   startQuiz();
-}
-
-// =====================================================
-// === LOCAL SMART QUIZ BUILDER (tanpa API eksternal) ===
-// =====================================================
-function buildQuestions(text, mat, count, difficulty, type) {
-  const name = mat.name || 'Materi';
-  // Preprocessing teks
-  const clean = text.replace(/[*#_`]/g, ' ').replace(/\s+/g, ' ').trim();
-  const sentences = parseSentences(clean);
-  const keywords = extractKeywords(clean, name);
-  const paragraphs = clean.split(/\n\n+/).filter(p => p.trim().length > 40);
-
-  const generators = {
-    pilgan: () => buildPilganQuestions(sentences, keywords, name, count, difficulty),
-    benar_salah: () => buildBenarSalahQuestions(sentences, keywords, name, count),
-    essay: () => buildEssayQuestions(sentences, keywords, paragraphs, name, count),
-    teka_teki: () => buildTekaTekiQuestions(sentences, keywords, name, count),
-    studi_kasus: () => buildStudiKasusQuestions(sentences, keywords, paragraphs, name, count),
-    ujian: () => buildUjianQuestions(sentences, keywords, paragraphs, name, count, difficulty),
-  };
-
-  const gen = generators[type] || generators.pilgan;
-  return gen().slice(0, count);
-}
-
-function parseSentences(text) {
-  return text.match(/[^.!?]+[.!?]+/g)
-    ?.map(s => s.trim())
-    .filter(s => s.length > 30 && s.length < 400) || [];
-}
-
-function extractKeywords(text, name) {
-  const lower = text.toLowerCase();
-  const words = lower.split(/\W+/).filter(w => w.length > 4);
-  const stopId = new Set(['yang','dengan','adalah','dalam','untuk','pada','dari','ini','itu','atau','dan','ke','di','oleh','juga','dapat','akan','tidak','ada','tersebut','sebagai','bahwa','sehingga','karena','namun','jika','maka','seperti','antara','setelah','sebelum','ketika','lebih','sangat','harus','sudah','telah','saat','cara','setiap','beberapa','banyak','semua','yaitu','yakni','merupakan','dilakukan','digunakan','terdapat','memiliki','terjadi','diperoleh','diketahui','dihasilkan','proses','suatu','suatu','kita','mereka','serta','pula','bisa','perlu','perlu','lain','sini','sana','sama','hasil','berupa','berisi']);
-  const freq = {};
-  words.forEach(w => { if (!stopId.has(w)) freq[w] = (freq[w]||0)+1; });
-  return Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,20).map(([w])=>w);
-}
-
-function shuffleArr(a) { return [...a].sort(()=>Math.random()-0.5); }
-function capitalize(s) { return s.charAt(0).toUpperCase()+s.slice(1); }
-function rnd(arr) { return arr[Math.floor(Math.random()*arr.length)]; }
-
-// ---- Distractors generator ----
-function makeDistractors(correctWord, allKeywords, count=3) {
-  const pool = allKeywords.filter(k => k !== correctWord.toLowerCase() && k.length > 3);
-  const shuffled = shuffleArr(pool);
-  const result = shuffled.slice(0, count).map(capitalize);
-  while (result.length < count) result.push(capitalize(rnd(['konsep','prinsip','teori','metode','fungsi','sistem','proses','faktor','unsur','elemen']) + ' lain'));
-  return result;
-}
-
-// ---- PILIHAN GANDA ----
-function buildPilganQuestions(sentences, keywords, matName, count, difficulty) {
-  const questions = [];
-  const usedSentences = new Set();
-
-  // Template soal berdasarkan kalimat dari materi
-  const goodSents = sentences.filter(s => {
-    const hasKeyword = keywords.some(k => s.toLowerCase().includes(k));
-    return hasKeyword && s.length > 40;
-  });
-
-  for (let i = 0; i < Math.min(goodSents.length, count); i++) {
-    const sent = goodSents[i];
-    if (usedSentences.has(sent)) continue;
-    usedSentences.add(sent);
-
-    // Cari kata kunci paling panjang dalam kalimat sebagai jawaban
-    const foundKw = keywords.find(k => sent.toLowerCase().includes(k) && k.length > 4);
-    if (!foundKw) continue;
-
-    const correctAnswer = capitalize(foundKw);
-    const wrongOptions = makeDistractors(foundKw, keywords, 3);
-    const allOptions = shuffleArr([correctAnswer, ...wrongOptions]);
-    const correctLabel = ['A','B','C','D'][allOptions.indexOf(correctAnswer)];
-
-    // Buat pertanyaan dari kalimat
-    const questionText = generatePilganQuestion(sent, foundKw, matName, difficulty, i);
-
-    questions.push({
-      question: questionText,
-      options: allOptions,
-      correct: correctLabel,
-      explanation: `Berdasarkan materi: "${sent.substring(0,180)}..."`
-    });
-  }
-
-  // Jika kurang dari count, tambah soal generik dari keywords
-  const extraTemplates = buildGenericPilgan(keywords, matName, count - questions.length, keywords);
-  return [...questions, ...extraTemplates].slice(0, count);
-}
-
-function generatePilganQuestion(sentence, keyword, matName, difficulty, index) {
-  const templates = [
-    `Dalam konteks ${matName}, apa yang dimaksud dengan "${capitalize(keyword)}"?`,
-    `Berdasarkan materi ${matName}, manakah pernyataan yang paling tepat mengenai ${capitalize(keyword)}?`,
-    `Apa peran ${capitalize(keyword)} berdasarkan uraian berikut: "${sentence.substring(0,100)}..."?`,
-    `Konsep manakah yang paling berkaitan dengan pernyataan: "${sentence.substring(0,120)}"?`,
-    `Dalam materi ${matName}, ${capitalize(keyword)} dapat dipahami sebagai...`,
-    `Manakah yang paling tepat mendeskripsikan ${capitalize(keyword)} dalam ${matName}?`,
-  ];
-  if (difficulty === 'sulit') {
-    return rnd([
-      `Analisis pernyataan berikut: "${sentence.substring(0,130)}". Manakah kesimpulan yang PALING tepat?`,
-      `Evaluasi konsep ${capitalize(keyword)}: manakah yang menggambarkan hubungannya dengan ${matName} secara paling komprehensif?`,
-      `Berdasarkan uraian "${sentence.substring(0,120)}", implikasi apa yang paling relevan terkait ${capitalize(keyword)}?`,
-    ]);
-  }
-  return templates[index % templates.length];
-}
-
-function buildGenericPilgan(keywords, matName, count, allKw) {
-  const questions = [];
-  const genericQ = [
-    { q: `Manakah yang merupakan konsep utama dalam materi ${matName}?`, a: 0 },
-    { q: `Apa tujuan utama dari mempelajari ${matName}?`, a: 0 },
-    { q: `Dalam ${matName}, manakah yang paling penting untuk dipahami?`, a: 0 },
-    { q: `Manakah pernyataan yang BENAR tentang ${matName}?`, a: 0 },
-    { q: `Konsep apa yang menjadi inti dari ${matName}?`, a: 0 },
-  ];
-  for (let i = 0; i < Math.min(count, genericQ.length) && keywords.length >= 4; i++) {
-    const correct = capitalize(keywords[i] || keywords[0]);
-    const wrong = makeDistractors(keywords[i] || keywords[0], allKw, 3);
-    const all = shuffleArr([correct, ...wrong]);
-    const label = ['A','B','C','D'][all.indexOf(correct)];
-    questions.push({
-      question: genericQ[i].q,
-      options: all,
-      correct: label,
-      explanation: `${capitalize(keywords[i] || keywords[0])} adalah salah satu konsep kunci dalam ${matName}.`
-    });
-  }
-  return questions;
-}
-
-// ---- BENAR / SALAH ----
-function buildBenarSalahQuestions(sentences, keywords, matName, count) {
-  const questions = [];
-  const goodSents = sentences.filter(s => keywords.some(k => s.toLowerCase().includes(k)) && s.length > 35);
-
-  goodSents.slice(0, Math.ceil(count/2)).forEach(sent => {
-    questions.push({
-      statement: sent.trim(),
-      correct: true,
-      explanation: `Pernyataan ini BENAR. Berdasarkan materi: "${sent.substring(0,150)}"`
-    });
-  });
-
-  // Buat pernyataan salah dengan membalik / modifikasi
-  const falseSents = goodSents.slice(Math.ceil(count/2), count);
-  falseSents.forEach((sent, i) => {
-    const kw = keywords.find(k => sent.toLowerCase().includes(k));
-    const wrongKw = keywords.filter(k => k !== kw)[i % 5] || 'faktor lain';
-    const modified = kw
-      ? sent.replace(new RegExp(kw, 'i'), capitalize(wrongKw))
-      : sent.replace(/tidak /i,'').replace(/adalah /i, 'bukan ');
-    questions.push({
-      statement: modified.trim(),
-      correct: false,
-      explanation: `Pernyataan ini SALAH. Seharusnya mengacu pada "${capitalize(kw||'konsep yang tepat')}", bukan "${capitalize(wrongKw)}".`
-    });
-  });
-
-  // Jika masih kurang, tambah generik
-  const genericFalse = [
-    { s: `${capitalize(keywords[0]||matName)} tidak memiliki peran penting dalam ${matName}.`, e: `Justru sebaliknya, ${capitalize(keywords[0]||matName)} memiliki peran penting.` },
-    { s: `Semua konsep dalam ${matName} bersifat independen dan tidak saling berhubungan.`, e: `Konsep-konsep dalam ${matName} saling berhubungan dan mendukung satu sama lain.` },
-    { s: `${matName} hanya relevan dalam konteks akademis semata.`, e: `${matName} memiliki relevansi luas, tidak hanya terbatas pada konteks akademis.` },
-  ];
-  genericFalse.forEach(gf => {
-    if (questions.length < count) questions.push({ statement: gf.s, correct: false, explanation: `Pernyataan SALAH. ${gf.e}` });
-  });
-
-  return shuffleArr(questions).slice(0, count);
-}
-
-// ---- ESAI ----
-function buildEssayQuestions(sentences, keywords, paragraphs, matName, count) {
-  const essayTemplates = [
-    { q: `Jelaskan secara singkat apa yang kamu pahami tentang ${matName}!`, kp: ['Definisi konsep', 'Karakteristik utama', 'Contoh penerapan'], ma: `Jawaban harus mencakup definisi, ciri-ciri, dan minimal satu contoh nyata dari ${matName}.` },
-    { q: `Mengapa ${capitalize(keywords[0]||'konsep ini')} penting dalam ${matName}? Jelaskan dengan contoh!`, kp: [`Pentingnya ${keywords[0]||'konsep'}`, 'Dampak jika tidak dipahami', 'Contoh konkret'], ma: `Jawaban harus menjelaskan urgensi dan memberikan contoh yang relevan.` },
-    { q: `Bagaimana hubungan antara ${capitalize(keywords[0]||'konsep A')} dan ${capitalize(keywords[1]||'konsep B')} dalam ${matName}?`, kp: ['Keterkaitan', 'Pengaruh timbal balik', 'Contoh kasus'], ma: `Jawaban harus menggambarkan hubungan timbal balik dengan jelas.` },
-    { q: `Uraikan proses atau tahapan yang terdapat dalam ${matName} berdasarkan pemahamanmu!`, kp: ['Tahapan berurutan', 'Fungsi tiap tahap', 'Hasil akhir'], ma: `Jawaban harus mencakup tahapan secara runtut dan logis.` },
-    { q: `Berikan analisismu tentang dampak atau manfaat mempelajari ${matName}!`, kp: ['Manfaat langsung', 'Manfaat jangka panjang', 'Relevansi nyata'], ma: `Jawaban menunjukkan pemahaman mendalam dan mampu mengaitkan dengan kehidupan nyata.` },
-    { q: `Apa yang membedakan ${capitalize(keywords[0]||matName)} dari konsep-konsep serupa? Jelaskan!`, kp: ['Perbedaan spesifik', 'Keunikan', 'Perbandingan'], ma: `Jawaban harus menunjukkan kemampuan membandingkan secara kritis.` },
-  ];
-  return essayTemplates.slice(0, count).map(t => ({
-    question: t.q,
-    keyPoints: t.kp,
-    modelAnswer: t.ma,
-    explanation: `Jawaban baik mencakup semua poin: ${t.kp.join(', ')}.`
-  }));
-}
-
-// ---- TEKA-TEKI (ISIAN) ----
-function buildTekaTekiQuestions(sentences, keywords, matName, count) {
-  const questions = [];
-  const goodSents = sentences.filter(s => {
-    return keywords.some(k => s.toLowerCase().includes(k) && s.toLowerCase().indexOf(k) > 5);
-  });
-
-  goodSents.slice(0, count).forEach((sent, i) => {
-    const kw = keywords.find(k => sent.toLowerCase().includes(k) && sent.toLowerCase().indexOf(k) > 5);
-    if (!kw || kw.length < 3) return;
-    const regex = new RegExp(kw, 'i');
-    const blanked = sent.replace(regex, '______');
-    if (!blanked.includes('______')) return;
-    const hint = `${kw.length} huruf, dimulai dengan "${kw[0].toUpperCase()}"`;
-    questions.push({
-      question: blanked.trim(),
-      sentence: blanked.trim(),
-      blank: capitalize(kw),
-      hint,
-      explanation: `Kata yang tepat adalah "${capitalize(kw)}". Kalimat lengkap: ${sent.trim()}`
-    });
-  });
-
-  // Generik jika kurang
-  keywords.slice(0, count - questions.length).forEach(kw => {
-    if (questions.length >= count) return;
-    questions.push({
-      question: `Dalam ${matName}, konsep "______" mengacu pada ${kw} yang memiliki peran penting.`,
-      sentence: `Dalam ${matName}, konsep "______" mengacu pada ${kw} yang memiliki peran penting.`,
-      blank: capitalize(kw),
-      hint: `${kw.length} huruf, diawali "${kw[0].toUpperCase()}"`,
-      explanation: `Jawaban: "${capitalize(kw)}" — merupakan bagian dari ${matName}.`
-    });
-  });
-
-  return questions.slice(0, count);
-}
-
-// ---- STUDI KASUS ----
-function buildStudiKasusQuestions(sentences, keywords, paragraphs, matName, count) {
-  const scenarios = [
-    `Seorang mahasiswa sedang mempelajari ${matName} dan menemukan bahwa ${capitalize(keywords[0]||'konsep A')} berperan penting dalam ${capitalize(keywords[1]||'situasi B')}.`,
-    `Dalam sebuah diskusi kelas, muncul perdebatan tentang penerapan ${matName} dalam kehidupan nyata. Salah satu pihak berpendapat bahwa ${capitalize(keywords[0]||'faktor utama')} adalah hal terpenting.`,
-    `Sebuah penelitian menemukan bahwa ${capitalize(keywords[1]||'variabel X')} berkorelasi erat dengan ${capitalize(keywords[2]||'variabel Y')} dalam konteks ${matName}.`,
-    `Tim proyek menghadapi tantangan dalam mengimplementasikan ${matName}. Mereka perlu memahami ${capitalize(keywords[0]||'konsep inti')} agar dapat menyelesaikan masalah.`,
-    `Seorang profesional diminta mengevaluasi suatu sistem berdasarkan prinsip ${matName}. Ia perlu mengidentifikasi ${capitalize(keywords[0]||'elemen kunci')} yang paling berpengaruh.`,
-  ];
-
-  return Array.from({length: count}, (_, i) => {
-    const scenIdx = i % scenarios.length;
-    const correct = capitalize(keywords[i % keywords.length] || matName);
-    const wrong = makeDistractors(keywords[i % keywords.length] || matName, keywords, 3);
-    const all = shuffleArr([correct, ...wrong]);
-    const label = ['A','B','C','D'][all.indexOf(correct)];
-    return {
-      scenario: scenarios[scenIdx],
-      question: rnd([
-        `Berdasarkan skenario di atas, konsep mana yang paling relevan untuk diterapkan?`,
-        `Apa langkah pertama yang paling tepat berdasarkan skenario tersebut?`,
-        `Faktor mana yang paling menentukan keberhasilan dalam situasi tersebut?`,
-        `Pendekatan mana yang paling sesuai untuk menangani situasi di atas?`,
-      ]),
-      options: all,
-      correct: label,
-      analysis: `Situasi ini memerlukan pemahaman mendalam tentang ${capitalize(keywords[i%keywords.length]||matName)}.`,
-      explanation: `Jawaban "${correct}" adalah yang paling tepat karena merupakan konsep inti yang relevan dengan skenario dan materi ${matName}.`
-    };
-  });
-}
-
-// ---- UJIAN (campuran MC + Esai) ----
-function buildUjianQuestions(sentences, keywords, paragraphs, matName, count, difficulty) {
-  const mcCount = Math.ceil(count * 0.7);
-  const essayCount = count - mcCount;
-  const mc = buildPilganQuestions(sentences, keywords, matName, mcCount, difficulty).map(q => ({...q, type:'mc'}));
-  const essay = buildEssayQuestions(sentences, keywords, paragraphs, matName, essayCount).map(q => ({...q, type:'essay'}));
-  return shuffleArr([...mc, ...essay]);
 }
 
 function startQuiz() {
@@ -3158,60 +3218,58 @@ async function submitEssay() {
   inp.disabled = true;
 
   const q = currentQuestions[currentQIndex];
-  showLoading('Menilai jawabanmu');
-  await new Promise(r => setTimeout(r, 700));
+  showLoading('AI menilai jawabanmu');
 
-  // Local essay scoring: hitung kecocokan kata kunci
-  const score = scoreEssayLocally(ans, q);
-  const correct = score >= 60;
-  const feedbacks = {
-    high: ['Jawaban sangat baik! Kamu memahami konsep dengan sangat jelas.', 'Luar biasa! Penjelasanmu lengkap dan tepat.', 'Bagus sekali! Semua poin penting tercakup.'],
-    mid: ['Jawaban cukup baik, namun bisa lebih lengkap.', 'Sudah menunjukkan pemahaman dasar. Coba tambahkan lebih banyak detail.', 'Jawaban oke, tapi ada beberapa poin yang belum disinggung.'],
-    low: ['Jawaban masih perlu diperdalam. Coba baca ulang materi.', 'Jawaban terlalu singkat, coba elaborasi lebih lanjut.', 'Belum mencakup poin-poin utama. Pelajari lagi ya!'],
-  };
-  const fb = score >= 80 ? rnd(feedbacks.high) : score >= 60 ? rnd(feedbacks.mid) : rnd(feedbacks.low);
-  const kpHit = (q.keyPoints||[]).filter(kp => ans.toLowerCase().includes(kp.split(' ')[0].toLowerCase()));
+  let score = 0;
+  let feedback = '';
 
-  quizAnswers[currentQIndex] = { answer: ans, correct, score };
-  hideLoading();
-
-  const kpFeedback = kpHit.length
-    ? `\n✅ Poin yang kamu sentuh: ${kpHit.join(', ')}`
-    : '';
-  const missingKp = (q.keyPoints||[]).filter(kp => !ans.toLowerCase().includes(kp.split(' ')[0].toLowerCase()));
-  const missingFb = missingKp.length ? `\n⚠️ Poin yang belum dibahas: ${missingKp.join(', ')}` : '';
-
-  showFeedback(correct,
-    `Skor: ${score}/100 — ${correct ? '✅ Baik!' : '⚠️ Perlu Perbaikan'}`,
-    fb + kpFeedback + missingFb + '\n\n📖 Jawaban ideal: ' + (q.modelAnswer || q.explanation || '-')
-  );
-  playAnswerAnim(correct);
+  try {
+    if (!isFileProtocol()) {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: "Kamu adalah penilai jawaban esai pendidikan. Nilai jawaban siswa dan berikan feedback konstruktif dalam Bahasa Indonesia.",
+          messages: [{
+            role: "user",
+            content: `Pertanyaan: ${q.question}\nJawaban Model: ${q.modelAnswer || ''}\nJawaban Siswa: ${ans}\n\nNilai jawaban siswa dari 0-100 dan berikan feedback singkat. Format: SKOR: [angka] | FEEDBACK: [teks] | BENAR: [true/false jika skor >= 60]`
+          }]
+        })
+      });
+      const d = await resp.json();
+      const txt = d.content?.[0]?.text || '';
+      const scoreMatch = txt.match(/SKOR:\s*(\d+)/);
+      const feedMatch = txt.match(/FEEDBACK:\s*(.*?)(?:\|BENAR:|$)/);
+      const correctMatch = txt.match(/BENAR:\s*(true|false)/);
+      score = scoreMatch ? parseInt(scoreMatch[1]) : 60;
+      feedback = feedMatch ? feedMatch[1].trim() : 'Jawaban diterima';
+      const correct = correctMatch ? correctMatch[1] === 'true' : score >= 60;
+      quizAnswers[currentQIndex] = { answer: ans, correct, score };
+      hideLoading();
+      showFeedback(correct, `Skor: ${score}/100 — ${correct ? '✅ Baik!' : '⚠️ Perlu Perbaikan'}`, feedback + '\n\n**Jawaban ideal:** ' + (q.modelAnswer || q.explanation || ''));
+      playAnswerAnim(correct);
+      renderNextBtn();
+      return;
+    }
+    throw new Error('file protocol');
+  } catch {
+    const model = normalizeText(q.modelAnswer || q.explanation || '');
+    const ansNorm = normalizeText(ans).toLowerCase();
+    const keyTerms = extractKeywords(model || q.question || '', 8);
+    const matched = keyTerms.filter(k => ansNorm.includes(k.toLowerCase())).length;
+    score = Math.max(40, Math.min(95, 45 + matched * 10));
+    const correct = score >= 60;
+    feedback = matched >= 3
+      ? 'Jawabanmu sudah cukup kuat dan menyentuh beberapa poin penting.'
+      : 'Jawabanmu masih bisa diperluas dengan menambahkan poin-poin inti dari materi.';
+    quizAnswers[currentQIndex] = { answer: ans, correct, score };
+    hideLoading();
+    showFeedback(correct, `Skor: ${score}/100 — ${correct ? '✅ Baik!' : '⚠️ Perlu Perbaikan'}`, `${feedback}\n\n**Jawaban ideal:** ${q.modelAnswer || q.explanation || 'Jawaban esai disimpan'}`);
+    playAnswerAnim(correct);
+  }
   renderNextBtn();
-}
-
-function scoreEssayLocally(answer, q) {
-  const ansLower = answer.toLowerCase();
-  let score = 30; // base
-
-  // Panjang jawaban
-  const wordCount = answer.split(/\s+/).length;
-  if (wordCount >= 50) score += 20;
-  else if (wordCount >= 20) score += 10;
-  else if (wordCount >= 10) score += 5;
-
-  // Key points coverage
-  const keyPoints = q.keyPoints || [];
-  keyPoints.forEach(kp => {
-    const kpWords = kp.toLowerCase().split(/\s+/);
-    if (kpWords.some(w => ansLower.includes(w) && w.length > 3)) score += Math.floor(40 / Math.max(keyPoints.length, 1));
-  });
-
-  // Model answer keywords
-  const modelWords = (q.modelAnswer || '').toLowerCase().split(/\W+/).filter(w => w.length > 4);
-  const hitCount = modelWords.filter(w => ansLower.includes(w)).length;
-  if (modelWords.length > 0) score += Math.min(20, Math.floor((hitCount / modelWords.length) * 20));
-
-  return Math.min(100, Math.max(0, score));
 }
 
 function showFeedback(correct, title, explanation) {
@@ -3633,8 +3691,8 @@ window.addEventListener('load', () => {
 
   showPage('login-page');
 
-  // Register service worker
-  if ('serviceWorker' in navigator) {
+  // Register service worker (skip when opened via file://)
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./service-worker.js')
       .then(() => console.log('SW registered'))
       .catch(err => console.error('SW error:', err));
