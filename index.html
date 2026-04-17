@@ -2974,17 +2974,7 @@ async function generateQuiz() {
 }
 
 async function generateQuizFromContent(mat, count, difficulty, type) {
-  loadingText.innerText = "AI sedang membuat soal...";
-
-try {
-    const quiz = await generateAIResponse(userInput, "quiz");
-
-    renderQuiz(quiz); // pastikan fungsi ini ada
-    loadingText.innerText = "";
-
-} catch (err) {
-    loadingText.innerText = "Gagal membuat soal";
-}
+  showLoading('AI sedang membuat soal');
 
   const content = mat.rawContent?.startsWith('__PDF_BASE64__')
     ? '[PDF Materi]'
