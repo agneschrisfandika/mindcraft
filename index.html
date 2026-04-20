@@ -2257,17 +2257,21 @@ function hideLoading() {
 }
 
 // ---- Quiz Generation Dedicated Loading ----
-let _qglTimer = null;
+let _qglTimers = [];
 function showQuizLoading(count, type) {
   const overlay = document.getElementById('quizGenLoading');
   const fill = document.getElementById('qglProgressFill');
   const label = document.getElementById('qglProgressLabel');
   const subtitle = document.getElementById('qglSubtitle');
-  const steps = ['qglStep1','qglStep2','qglStep3','qglStep4'];
+  const stepIds = ['qglStep1','qglStep2','qglStep3','qglStep4'];
   const typeLabel = { pilgan:'Pilihan Ganda', essay:'Esai', benar_salah:'Benar/Salah', studi_kasus:'Studi Kasus', teka_teki:'Teka-Teki', ujian:'Ujian Campuran' };
 
-  // Reset all steps
-  steps.forEach(id => {
+  // Cancel any previous timers
+  _qglTimers.forEach(t => clearTimeout(t));
+  _qglTimers = [];
+
+  // Reset UI
+  stepIds.forEach(id => {
     const el = document.getElementById(id);
     el.classList.remove('active','done');
   });
@@ -2276,7 +2280,7 @@ function showQuizLoading(count, type) {
   subtitle.textContent = `Membuat ${count} soal ${typeLabel[type] || 'Kuis'}...`;
   overlay.classList.add('show');
 
-  // Animate steps over ~2.4s then hold until hideQuizLoading is called
+  // Animate steps — purely visual, does NOT control quiz start
   const phases = [
     { step: 0, pct: 20, delay: 0,    sub: 'Membaca dan memahami materi...' },
     { step: 1, pct: 50, delay: 550,  sub: 'Menganalisis istilah & konsep kunci...' },
@@ -2284,40 +2288,22 @@ function showQuizLoading(count, type) {
     { step: 3, pct: 95, delay: 1700, sub: 'Hampir selesai...' },
   ];
 
-  if (_qglTimer) clearTimeout(_qglTimer);
-
   phases.forEach(({ step, pct, delay, sub }) => {
-    _qglTimer = setTimeout(() => {
-      // Mark previous steps as done
-      for (let i = 0; i < step; i++) document.getElementById(steps[i]).classList.replace('active','done') || document.getElementById(steps[i]).classList.add('done');
-      document.getElementById(steps[step]).classList.add('active');
+    const t = setTimeout(() => {
+      for (let i = 0; i < step; i++) {
+        const el = document.getElementById(stepIds[i]);
+        if (!el.classList.contains('done')) {
+          el.classList.remove('active');
+          el.classList.add('done');
+        }
+      }
+      document.getElementById(stepIds[step]).classList.add('active');
       fill.style.width = pct + '%';
       label.textContent = pct + '%';
       subtitle.textContent = sub;
     }, delay);
+    _qglTimers.push(t);
   });
-}
-
-function hideQuizLoading() {
-  const overlay = document.getElementById('quizGenLoading');
-  const fill = document.getElementById('qglProgressFill');
-  const label = document.getElementById('qglProgressLabel');
-  const steps = ['qglStep1','qglStep2','qglStep3','qglStep4'];
-
-  // Complete all steps instantly
-  fill.style.width = '100%';
-  label.textContent = '100%';
-  document.getElementById('qglSubtitle').textContent = 'Kuis berhasil dibuat! 🎉';
-  steps.forEach(id => {
-    const el = document.getElementById(id);
-    el.classList.remove('active');
-    el.classList.add('done');
-  });
-
-  // Brief pause to show 100% before hiding
-  setTimeout(() => {
-    overlay.classList.remove('show');
-  }, 500);
 }
 
 function showPage(pageId) {
@@ -3218,37 +3204,62 @@ async function generateQuizFromContent(mat, count, difficulty, type) {
   }
   content = content.trim().substring(0, 8000);
 
-  // Validate we have enough real text to generate questions
   const wordCount = content.split(/\s+/).filter(w => w.length > 2).length;
   if (wordCount < 30) {
-    showToast('Materi terlalu pendek atau tidak terbaca. Minimal 30 kata diperlukan untuk membuat soal.', 'error');
+    showToast('Materi terlalu pendek. Minimal 30 kata diperlukan untuk membuat soal.', 'error');
     return;
   }
 
-  // Show dedicated quiz loading screen
-  showQuizLoading(count, type);
+  const overlay  = document.getElementById('quizGenLoading');
+  const fill     = document.getElementById('qglProgressFill');
+  const plabel   = document.getElementById('qglProgressLabel');
+  const subtitle = document.getElementById('qglSubtitle');
+  const stepIds  = ['qglStep1','qglStep2','qglStep3','qglStep4'];
 
-  // Wait for animation to play through the steps (~1.8s minimum)
+  // STEP 1 — Show loading, let animation play (~1.8s)
+  showQuizLoading(count, type);
   await new Promise(r => setTimeout(r, 1800));
 
+  // STEP 2 — Generate questions (synchronous, runs instantly)
+  let questions;
   try {
-    const questions = OfflineAI.generate(content, count, difficulty, type);
-    if (!Array.isArray(questions) || questions.length === 0) throw new Error('No questions generated');
-    currentQuestions = questions;
+    questions = OfflineAI.generate(content, count, difficulty, type);
+    if (!Array.isArray(questions) || questions.length === 0) throw new Error('empty');
   } catch (err) {
-    hideQuizLoading();
-    showToast('Gagal membuat soal. Pastikan materi memiliki teks yang cukup dan jelas.', 'error');
+    // Cancel all pending timers, hide overlay immediately
+    _qglTimers.forEach(t => clearTimeout(t));
+    _qglTimers = [];
+    overlay.classList.remove('show');
+    showToast('Gagal membuat soal. Pastikan materi memiliki teks yang cukup.', 'error');
     return;
   }
+  currentQuestions = questions;
 
-  // Update material quiz count
+  // STEP 3 — Show 100% complete state
+  _qglTimers.forEach(t => clearTimeout(t));
+  _qglTimers = [];
+  stepIds.forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('active');
+    el.classList.add('done');
+  });
+  fill.style.width = '100%';
+  plabel.textContent = '100%';
+  subtitle.textContent = 'Kuis berhasil dibuat! 🎉';
+
+  // STEP 4 — Let user see the 100% state for 700ms
+  await new Promise(r => setTimeout(r, 700));
+
+  // STEP 5 — Fade out the overlay (CSS transition = 0.35s)
+  overlay.classList.remove('show');
+  await new Promise(r => setTimeout(r, 380));
+
+  // STEP 6 — Update quiz count in storage
   const mats = getMaterials();
   const idx = mats.findIndex(m => m.id === currentMaterialId);
   if (idx > -1) { mats[idx].quizCount++; saveMaterials(mats); }
 
-  // Hide loading (shows 100% briefly then closes)
-  hideQuizLoading();
-  await new Promise(r => setTimeout(r, 550));
+  // STEP 7 — Start the quiz (overlay is fully gone now)
   startQuiz();
 }
 
