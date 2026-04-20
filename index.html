@@ -1095,7 +1095,149 @@
     }
     @keyframes dots { 0%{content:''} 33%{content:'.'} 66%{content:'..'} 100%{content:'...'} }
 
-    /* ===== ANSWER ANIMATION OVERLAY ===== */
+    /* ===== QUIZ GENERATION LOADING ===== */
+    .quiz-gen-loading {
+      position: fixed;
+      inset: 0;
+      background: rgba(13,17,23,0.96);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      z-index: 9500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.35s ease;
+    }
+    .quiz-gen-loading.show { opacity: 1; pointer-events: all; }
+    .qgl-card {
+      background: var(--bg-2);
+      border: 1px solid rgba(124,58,237,0.3);
+      border-radius: 24px;
+      padding: 2.5rem 2rem;
+      width: min(380px, 90vw);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.2rem;
+      box-shadow: 0 0 60px rgba(124,58,237,0.2), 0 20px 60px rgba(0,0,0,0.5);
+    }
+    /* Spinning rings */
+    .qgl-brain-wrap {
+      position: relative;
+      width: 96px;
+      height: 96px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .qgl-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 3px solid transparent;
+    }
+    .qgl-ring-1 {
+      border-top-color: var(--primary);
+      animation: qglSpin 1.1s linear infinite;
+    }
+    .qgl-ring-2 {
+      inset: 10px;
+      border-top-color: var(--accent, #06b6d4);
+      animation: qglSpin 0.85s linear infinite reverse;
+    }
+    .qgl-ring-3 {
+      inset: 22px;
+      border-top-color: rgba(124,58,237,0.5);
+      animation: qglSpin 1.4s linear infinite;
+    }
+    @keyframes qglSpin { to { transform: rotate(360deg); } }
+    .qgl-brain-icon {
+      font-size: 2rem;
+      animation: qglPulse 1.4s ease-in-out infinite;
+      position: relative;
+      z-index: 1;
+    }
+    @keyframes qglPulse {
+      0%,100% { transform: scale(1); filter: brightness(1); }
+      50% { transform: scale(1.12); filter: brightness(1.3); }
+    }
+    .qgl-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.01em;
+    }
+    .qgl-subtitle {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      text-align: center;
+      min-height: 1.2em;
+      transition: all 0.3s ease;
+    }
+    /* Step list */
+    .qgl-steps {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+    .qgl-step {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      padding: 0.55rem 0.9rem;
+      border-radius: 10px;
+      background: var(--bg-3);
+      border: 1px solid transparent;
+      transition: all 0.4s ease;
+      opacity: 0.4;
+    }
+    .qgl-step.active {
+      opacity: 1;
+      border-color: rgba(124,58,237,0.4);
+      background: rgba(124,58,237,0.08);
+      animation: qglStepPulse 1.2s ease-in-out infinite;
+    }
+    .qgl-step.done {
+      opacity: 1;
+      border-color: rgba(16,185,129,0.35);
+      background: rgba(16,185,129,0.07);
+      animation: none;
+    }
+    @keyframes qglStepPulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(124,58,237,0); }
+      50% { box-shadow: 0 0 0 4px rgba(124,58,237,0.12); }
+    }
+    .qgl-step-icon { font-size: 1rem; }
+    .qgl-step-label { flex: 1; font-size: 0.82rem; font-weight: 500; color: var(--text-muted); }
+    .qgl-step.active .qgl-step-label { color: var(--text); }
+    .qgl-step.done .qgl-step-label { color: var(--text); }
+    .qgl-step-status { font-size: 0.75rem; width: 18px; text-align: center; }
+    .qgl-step.done .qgl-step-status::after { content: '✓'; color: #10b981; font-weight: 700; }
+    .qgl-step.active .qgl-step-status::after { content: ''; animation: dots 1s infinite; display: inline-block; }
+    /* Progress bar */
+    .qgl-progress-bar {
+      width: 100%;
+      height: 6px;
+      background: var(--bg-3);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .qgl-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--primary), var(--accent, #7c3aed));
+      border-radius: 99px;
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .qgl-progress-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
     .answer-anim {
       position: fixed;
       inset: 0;
@@ -1327,6 +1469,28 @@
     </div>
   </div>
   <p class="loading-text loading-dots" id="loadingText">AI sedang bekerja</p>
+</div>
+
+<!-- QUIZ GENERATION LOADING (full-screen dedicated) -->
+<div class="quiz-gen-loading" id="quizGenLoading">
+  <div class="qgl-card">
+    <div class="qgl-brain-wrap">
+      <div class="qgl-ring qgl-ring-1"></div>
+      <div class="qgl-ring qgl-ring-2"></div>
+      <div class="qgl-ring qgl-ring-3"></div>
+      <span class="qgl-brain-icon">🧠</span>
+    </div>
+    <div class="qgl-title">Membuat Soal Kuis</div>
+    <div class="qgl-subtitle" id="qglSubtitle">Mempersiapkan mesin soal...</div>
+    <div class="qgl-steps" id="qglSteps">
+      <div class="qgl-step" id="qglStep1"><span class="qgl-step-icon">📖</span><span class="qgl-step-label">Membaca materi</span><span class="qgl-step-status"></span></div>
+      <div class="qgl-step" id="qglStep2"><span class="qgl-step-icon">🔍</span><span class="qgl-step-label">Menganalisis konten</span><span class="qgl-step-status"></span></div>
+      <div class="qgl-step" id="qglStep3"><span class="qgl-step-icon">✏️</span><span class="qgl-step-label">Menyusun pertanyaan</span><span class="qgl-step-status"></span></div>
+      <div class="qgl-step" id="qglStep4"><span class="qgl-step-icon">🎯</span><span class="qgl-step-label">Finalisasi kuis</span><span class="qgl-step-status"></span></div>
+    </div>
+    <div class="qgl-progress-bar"><div class="qgl-progress-fill" id="qglProgressFill"></div></div>
+    <div class="qgl-progress-label" id="qglProgressLabel">0%</div>
+  </div>
 </div>
 
 <!-- ANSWER ANIMATION -->
@@ -2090,6 +2254,70 @@ function showLoading(text = 'AI sedang bekerja') {
 
 function hideLoading() {
   document.getElementById('loadingOverlay').classList.remove('show');
+}
+
+// ---- Quiz Generation Dedicated Loading ----
+let _qglTimer = null;
+function showQuizLoading(count, type) {
+  const overlay = document.getElementById('quizGenLoading');
+  const fill = document.getElementById('qglProgressFill');
+  const label = document.getElementById('qglProgressLabel');
+  const subtitle = document.getElementById('qglSubtitle');
+  const steps = ['qglStep1','qglStep2','qglStep3','qglStep4'];
+  const typeLabel = { pilgan:'Pilihan Ganda', essay:'Esai', benar_salah:'Benar/Salah', studi_kasus:'Studi Kasus', teka_teki:'Teka-Teki', ujian:'Ujian Campuran' };
+
+  // Reset all steps
+  steps.forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('active','done');
+  });
+  fill.style.width = '0%';
+  label.textContent = '0%';
+  subtitle.textContent = `Membuat ${count} soal ${typeLabel[type] || 'Kuis'}...`;
+  overlay.classList.add('show');
+
+  // Animate steps over ~2.4s then hold until hideQuizLoading is called
+  const phases = [
+    { step: 0, pct: 20, delay: 0,    sub: 'Membaca dan memahami materi...' },
+    { step: 1, pct: 50, delay: 550,  sub: 'Menganalisis istilah & konsep kunci...' },
+    { step: 2, pct: 80, delay: 1100, sub: `Menyusun ${count} pertanyaan...` },
+    { step: 3, pct: 95, delay: 1700, sub: 'Hampir selesai...' },
+  ];
+
+  if (_qglTimer) clearTimeout(_qglTimer);
+
+  phases.forEach(({ step, pct, delay, sub }) => {
+    _qglTimer = setTimeout(() => {
+      // Mark previous steps as done
+      for (let i = 0; i < step; i++) document.getElementById(steps[i]).classList.replace('active','done') || document.getElementById(steps[i]).classList.add('done');
+      document.getElementById(steps[step]).classList.add('active');
+      fill.style.width = pct + '%';
+      label.textContent = pct + '%';
+      subtitle.textContent = sub;
+    }, delay);
+  });
+}
+
+function hideQuizLoading() {
+  const overlay = document.getElementById('quizGenLoading');
+  const fill = document.getElementById('qglProgressFill');
+  const label = document.getElementById('qglProgressLabel');
+  const steps = ['qglStep1','qglStep2','qglStep3','qglStep4'];
+
+  // Complete all steps instantly
+  fill.style.width = '100%';
+  label.textContent = '100%';
+  document.getElementById('qglSubtitle').textContent = 'Kuis berhasil dibuat! 🎉';
+  steps.forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('active');
+    el.classList.add('done');
+  });
+
+  // Brief pause to show 100% before hiding
+  setTimeout(() => {
+    overlay.classList.remove('show');
+  }, 500);
 }
 
 function showPage(pageId) {
@@ -2997,15 +3225,18 @@ async function generateQuizFromContent(mat, count, difficulty, type) {
     return;
   }
 
-  showLoading(`Membuat ${count} soal dari materi (${wordCount} kata)`);
-  await new Promise(r => setTimeout(r, 500));
+  // Show dedicated quiz loading screen
+  showQuizLoading(count, type);
+
+  // Wait for animation to play through the steps (~1.8s minimum)
+  await new Promise(r => setTimeout(r, 1800));
 
   try {
     const questions = OfflineAI.generate(content, count, difficulty, type);
     if (!Array.isArray(questions) || questions.length === 0) throw new Error('No questions generated');
     currentQuestions = questions;
   } catch (err) {
-    hideLoading();
+    hideQuizLoading();
     showToast('Gagal membuat soal. Pastikan materi memiliki teks yang cukup dan jelas.', 'error');
     return;
   }
@@ -3015,7 +3246,9 @@ async function generateQuizFromContent(mat, count, difficulty, type) {
   const idx = mats.findIndex(m => m.id === currentMaterialId);
   if (idx > -1) { mats[idx].quizCount++; saveMaterials(mats); }
 
-  hideLoading();
+  // Hide loading (shows 100% briefly then closes)
+  hideQuizLoading();
+  await new Promise(r => setTimeout(r, 550));
   startQuiz();
 }
 
