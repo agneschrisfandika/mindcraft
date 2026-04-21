@@ -2256,6 +2256,15 @@ function hideLoading() {
   document.getElementById('loadingOverlay').classList.remove('show');
 }
 
+function escapeHtml(str = '') {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // ---- Quiz Generation Dedicated Loading ----
 let _qglTimers = [];
 function showQuizLoading(count, type) {
@@ -2271,7 +2280,6 @@ function showQuizLoading(count, type) {
   _qglTimers = [];
 
   // Reset UI
-  overlay.style.display = '';  // clear any inline display:none from previous call
   stepIds.forEach(id => {
     const el = document.getElementById(id);
     el.classList.remove('active','done');
@@ -3217,65 +3225,71 @@ async function generateQuizFromContent(mat, count, difficulty, type) {
   const subtitle = document.getElementById('qglSubtitle');
   const stepIds  = ['qglStep1','qglStep2','qglStep3','qglStep4'];
 
-  // Show loading overlay
+  // STEP 1 — Show loading, let animation play (~1.8s)
   showQuizLoading(count, type);
-
-  // Let the step animations play (purely visual)
   await new Promise(r => setTimeout(r, 1800));
 
-  // Generate questions synchronously
-  let questions = [];
+  // STEP 2 — Generate questions (synchronous, runs instantly)
+  let questions;
   try {
     questions = OfflineAI.generate(content, count, difficulty, type);
-  } catch(e) { questions = []; }
-
-  if (!Array.isArray(questions) || questions.length === 0) {
-    // Cancel pending step timers and hide overlay
+    if (!Array.isArray(questions) || questions.length === 0) throw new Error('empty');
+  } catch (err) {
+    // Cancel all pending timers, hide overlay immediately
     _qglTimers.forEach(t => clearTimeout(t));
     _qglTimers = [];
-    overlay.style.display = 'none';
+    overlay.classList.remove('show');
     showToast('Gagal membuat soal. Pastikan materi memiliki teks yang cukup.', 'error');
     return;
   }
-
-  // Store questions globally BEFORE any await
   currentQuestions = questions;
 
-  // Cancel remaining step timers, set all to done
-  _qglTimers.forEach(t => clearTimeout(t));
-  _qglTimers = [];
-  stepIds.forEach(id => {
-    const el = document.getElementById(id);
-    el.classList.remove('active');
-    el.classList.add('done');
-  });
-  fill.style.width = '100%';
-  plabel.textContent = '100%';
-  subtitle.textContent = 'Kuis berhasil dibuat! 🎉';
+  try {
+    // STEP 3 — Show 100% complete state
+    _qglTimers.forEach(t => clearTimeout(t));
+    _qglTimers = [];
+    stepIds.forEach(id => {
+      const el = document.getElementById(id);
+      el.classList.remove('active');
+      el.classList.add('done');
+    });
+    fill.style.width = '100%';
+    plabel.textContent = '100%';
+    subtitle.textContent = 'Kuis berhasil dibuat! 🎉';
 
-  // Short pause so user sees the ✓ completion state
-  await new Promise(r => setTimeout(r, 600));
+    // STEP 4 — Let user see the 100% state for 700ms
+    await new Promise(r => setTimeout(r, 700));
 
-  // Completely remove overlay from view (no fade race condition)
-  overlay.classList.remove('show');
-  overlay.style.display = 'none';
+    // STEP 5 — Fade out the overlay (CSS transition = 0.35s)
+    overlay.classList.remove('show');
+    await new Promise(r => setTimeout(r, 380));
 
-  // Update quiz count in storage
-  const mats = getMaterials();
-  const idx = mats.findIndex(m => m.id === currentMaterialId);
-  if (idx > -1) { mats[idx].quizCount++; saveMaterials(mats); }
-
-  // Make sure we're on the quiz section and start
-  if (!document.getElementById('section-quiz').classList.contains('active')) {
-    switchSection('quiz');
+    // STEP 6 — Update quiz count in storage
+    const mats = getMaterials();
+    const idx = mats.findIndex(m => m.id === currentMaterialId);
+    if (idx > -1) { mats[idx].quizCount++; saveMaterials(mats); }
+  } catch (err) {
+    console.error('Quiz transition error:', err);
+  } finally {
+    overlay.classList.remove('show');
   }
-  startQuiz();
+
+  // STEP 7 — Start the quiz (overlay is fully gone now)
+  requestAnimationFrame(() => startQuiz());
+  setTimeout(() => {
+    if (document.getElementById('quizPlayView').style.display !== 'block' && currentQuestions.length) {
+      startQuiz();
+    }
+  }, 120);
 }
 
 function startQuiz() {
-  // Safety: ensure loading overlay is fully hidden
-  const qgl = document.getElementById('quizGenLoading');
-  if (qgl) { qgl.classList.remove('show'); qgl.style.display = 'none'; }
+  console.log('startQuiz()', { count: Array.isArray(currentQuestions) ? currentQuestions.length : 'invalid', type: currentQuizType });
+  if (!Array.isArray(currentQuestions) || currentQuestions.length === 0) {
+    showToast('Soal kuis belum berhasil dibuat. Coba lagi.', 'error');
+    goToQuizSetup();
+    return;
+  }
 
   currentQIndex = 0;
   quizAnswers = Array(currentQuestions.length).fill(null);
@@ -3289,11 +3303,12 @@ function startQuiz() {
   const typeNames = { pilgan:'Pilihan Ganda', essay:'Esai', benar_salah:'Benar/Salah', studi_kasus:'Studi Kasus', teka_teki:'Teka-Teki', ujian:'Ujian' };
   document.getElementById('quizTypeChip').textContent = typeNames[currentQuizType] || 'Kuis';
   document.getElementById('qTotalNum').textContent = currentQuestions.length;
-  renderQuestion();
+  requestAnimationFrame(() => renderQuestion());
 }
 
 function renderQuestion() {
   const q = currentQuestions[currentQIndex];
+  console.log('renderQuestion()', { index: currentQIndex, total: currentQuestions.length, q });
   if (!q) return;
   const num = currentQIndex + 1;
   document.getElementById('qCurrentNum').textContent = num;
@@ -3315,10 +3330,10 @@ function renderQuestion() {
 
   // For studi kasus show scenario
   if (currentQuizType === 'studi_kasus' && q.scenario) {
-    html += `<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:1rem;margin-bottom:1rem;font-size:0.875rem;color:var(--text-muted)"><strong>📖 Skenario:</strong><br>${q.scenario}</div>`;
+    html += `<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:1rem;margin-bottom:1rem;font-size:0.875rem;color:var(--text-muted)"><strong>📖 Skenario:</strong><br>${escapeHtml(q.scenario)}</div>`;
   }
 
-  html += `<div class="q-text">${q.question || q.statement || q.sentence || ''}</div>`;
+  html += `<div class="q-text">${escapeHtml(q.question || q.statement || q.sentence || '')}</div>`;
 
   if (type === 'pilgan' && q.options) {
     html += `<div class="options-list" id="optionsList">`;
@@ -3326,7 +3341,7 @@ function renderQuestion() {
     q.options.forEach((opt, i) => {
       html += `<button class="option-btn" onclick="answerMC(${i})" data-idx="${i}">
         <span class="option-label">${labels[i]}</span>
-        <span>${opt}</span>
+        <span>${escapeHtml(opt)}</span>
       </button>`;
     });
     html += `</div>`;
@@ -3336,13 +3351,13 @@ function renderQuestion() {
       <button class="option-btn" onclick="answerTF(false)" data-val="false"><span class="option-label">✗</span><span>Salah</span></button>
     </div>`;
   } else if (type === 'teka_teki') {
-    if (q.hint) html += `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">💡 Petunjuk: ${q.hint}</div>`;
+    if (q.hint) html += `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">💡 Petunjuk: ${escapeHtml(q.hint)}</div>`;
     html += `<div style="display:flex;gap:0.75rem;align-items:center">
       <input type="text" class="form-control" id="ttkInput" placeholder="Isi jawabannya..." style="flex:1" onkeypress="if(event.key==='Enter')submitTTK()">
       <button class="btn-mc btn-primary-mc btn-sm btn-w-auto" onclick="submitTTK()">Jawab</button>
     </div>`;
   } else if (type === 'essay') {
-    if (q.keyPoints?.length) html += `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">💡 Poin yang perlu dibahas: ${q.keyPoints.join(', ')}</div>`;
+    if (q.keyPoints?.length) html += `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">💡 Poin yang perlu dibahas: ${escapeHtml(q.keyPoints.join(', '))}</div>`;
     html += `<div class="essay-input-wrap">
       <textarea class="textarea-mc" id="essayInput" placeholder="Tulis jawabanmu di sini..."></textarea>
     </div>
@@ -3485,8 +3500,8 @@ function showFeedback(correct, title, explanation) {
   const el = document.getElementById('answerFeedback');
   el.className = `answer-feedback show ${correct ? 'feedback-correct' : 'feedback-wrong'}`;
   el.innerHTML = `
-    <div class="feedback-title">${title}</div>
-    <div class="feedback-explanation">${explanation.replace(/\n/g,'<br>')}</div>
+    <div class="feedback-title">${escapeHtml(title)}</div>
+    <div class="feedback-explanation">${escapeHtml(explanation).replace(/\n/g,'<br>')}</div>
   `;
 }
 
@@ -3589,7 +3604,7 @@ function reviewQuiz() {
 
 function renderReview() {
   const list = document.getElementById('reviewList');
-  const labels = ['A','B','C','D'];
+  const labels = ['A','B','C','D','E'];
   list.innerHTML = currentQuestions.map((q, i) => {
     const ans = quizAnswers[i];
     const correct = ans?.correct;
@@ -3599,10 +3614,10 @@ function renderReview() {
           <span class="chip ${correct?'chip-green':'chip-red'}">${correct?'✅ Benar':'❌ Salah'}</span>
           <span style="font-size:0.8rem;color:var(--text-muted)">Soal ${i+1}</span>
         </div>
-        <div style="font-weight:600;margin-bottom:0.75rem;font-size:0.9rem">${q.question||q.statement||q.sentence||''}</div>
-        ${ans?.answer!=null?`<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem">Jawabanmu: <strong style="color:${correct?'var(--success)':'var(--danger)'}">${ans.answer}</strong></div>`:''}
-        ${q.correct||q.blank?`<div style="font-size:0.8rem;color:var(--success);margin-bottom:0.5rem">Jawaban benar: <strong>${q.correct||q.blank}</strong></div>`:''}
-        ${q.explanation?`<div style="font-size:0.8rem;color:var(--text-muted);background:var(--bg-3);padding:0.75rem;border-radius:8px">💡 ${q.explanation}</div>`:''}
+        <div style="font-weight:600;margin-bottom:0.75rem;font-size:0.9rem">${escapeHtml(q.question||q.statement||q.sentence||'')}</div>
+        ${ans?.answer!=null?`<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem">Jawabanmu: <strong style="color:${correct?'var(--success)':'var(--danger)'}">${escapeHtml(ans.answer)}</strong></div>`:''}
+        ${q.correct||q.blank?`<div style="font-size:0.8rem;color:var(--success);margin-bottom:0.5rem">Jawaban benar: <strong>${escapeHtml(q.correct||q.blank)}</strong></div>`:''}
+        ${q.explanation?`<div style="font-size:0.8rem;color:var(--text-muted);background:var(--bg-3);padding:0.75rem;border-radius:8px">💡 ${escapeHtml(q.explanation)}</div>`:''}
       </div>
     `;
   }).join('');
@@ -3903,7 +3918,13 @@ window.addEventListener('load', () => {
   // Register service worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./service-worker.js')
-      .then(() => console.log('SW registered'))
+      .then(reg => {
+        console.log('SW registered');
+        reg.update().catch(() => {});
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          window.location.reload();
+        });
+      })
       .catch(err => console.error('SW error:', err));
   }
 
