@@ -2282,6 +2282,7 @@ function showQuizLoading(count, type) {
   // Reset UI
   stepIds.forEach(id => {
     const el = document.getElementById(id);
+    if (!el) return;
     el.classList.remove('active','done');
   });
   fill.style.width = '0%';
@@ -2301,12 +2302,14 @@ function showQuizLoading(count, type) {
     const t = setTimeout(() => {
       for (let i = 0; i < step; i++) {
         const el = document.getElementById(stepIds[i]);
+        if (!el) continue;
         if (!el.classList.contains('done')) {
           el.classList.remove('active');
           el.classList.add('done');
         }
       }
-      document.getElementById(stepIds[step]).classList.add('active');
+      const currentStepEl = document.getElementById(stepIds[step]);
+      if (currentStepEl) currentStepEl.classList.add('active');
       fill.style.width = pct + '%';
       label.textContent = pct + '%';
       subtitle.textContent = sub;
@@ -2598,6 +2601,102 @@ const OfflineAI = {
     return this.shuffle([...mc,...es]).slice(0,count);
   },
 
+
+  // ---- GENERATE FALLBACK (always returns a usable quiz) ----
+  genFallback(text, count, difficulty, type) {
+    const sentences = this.getSentences(text);
+    const terms = this.getKeyTerms(text);
+    const safeTerms = (terms.length ? terms : ['konsep', 'teori', 'prinsip', 'metode']).slice(0, 6).map(t => this.cap(t));
+    const primary = safeTerms[0] || 'Konsep Utama';
+    const secondary = safeTerms[1] || 'Teori';
+    const tertiary = safeTerms[2] || 'Prinsip';
+    const quaternary = safeTerms[3] || 'Metode';
+    const baseSentence = this.cap(sentences[0] || `Materi ini membahas ${primary}.`);
+
+    const makeMC = (i) => {
+      const templates = [
+        `Apa konsep utama yang paling menonjol dari materi ini?`,
+        `Apa tujuan utama dari pembahasan materi ini?`,
+        `Konsep mana yang paling relevan dengan materi yang dipelajari?`,
+        `Apa istilah kunci yang paling sering muncul pada materi ini?`,
+      ];
+      const pool = this.shuffle([primary, secondary, tertiary, quaternary].filter(Boolean));
+      const opts = this.shuffle([pool[0], pool[1] || 'A', pool[2] || 'B', pool[3] || 'C'].map(this.cap));
+      const correctText = this.cap(primary);
+      return {
+        question: templates[i % templates.length],
+        options: opts,
+        correct: ['A','B','C','D'][opts.findIndex(o => o.toLowerCase() === correctText.toLowerCase())],
+        explanation: `Istilah yang paling mewakili materi ini adalah "${correctText}".`
+      };
+    };
+
+    const makeEssay = (i) => {
+      const prompts = [
+        `Jelaskan inti dari materi ini berdasarkan pemahamanmu!`,
+        `Uraikan konsep-konsep penting yang ada pada materi ini!`,
+        `Mengapa ${primary} menjadi topik penting dalam materi ini?`,
+        `Jelaskan hubungan antara ${primary} dan ${secondary} dalam materi ini!`,
+      ];
+      return {
+        question: prompts[i % prompts.length],
+        keyPoints: [primary, secondary, tertiary],
+        modelAnswer: sentences.slice(0, 3).join(' ') || `Materi ini menjelaskan ${primary}, ${secondary}, dan ${tertiary}.`,
+        explanation: `Jawaban sebaiknya memuat ${primary}, ${secondary}, dan ${tertiary}.`
+      };
+    };
+
+    const makeTF = (i) => {
+      const statements = [
+        `${baseSentence}`,
+        `${primary} merupakan salah satu konsep penting dalam materi ini.`,
+        `${secondary} dan ${tertiary} saling berkaitan dalam pembahasan ini.`,
+        `Materi ini menekankan pemahaman terhadap ${primary}.`,
+      ];
+      return {
+        statement: statements[i % statements.length],
+        correct: true,
+        explanation: `Pernyataan ini didukung oleh isi materi, terutama pada bagian yang membahas ${primary}.`
+      };
+    };
+
+    const makeTTK = (i) => {
+      const sentence = sentences[i % Math.max(1, sentences.length)] || `Materi ini membahas _____ sebagai konsep utama.`;
+      return {
+        sentence: sentence.includes(primary) ? sentence.replace(new RegExp(primary, 'i'), '_____') : `Materi ini membahas _____ sebagai konsep utama.`,
+        blank: primary,
+        hint: `Huruf awal "${String(primary)[0] || 'K'}"`,
+        explanation: `Kata yang tepat adalah "${primary}".`
+      };
+    };
+
+    const output = [];
+    for (let i = 0; i < Math.max(1, count); i++) {
+      if (type === 'essay') output.push(makeEssay(i));
+      else if (type === 'benar_salah') output.push(makeTF(i));
+      else if (type === 'teka_teki') output.push(makeTTK(i));
+      else if (type === 'studi_kasus') output.push({
+        scenario: `Dalam konteks materi ini, peserta didik diminta memahami "${primary}".`,
+        question: `Berdasarkan skenario di atas, konsep apa yang paling tepat diterapkan?`,
+        options: this.shuffle([primary, secondary, tertiary, quaternary].map(this.cap)),
+        correct: 'A',
+        analysis: `Kasus ini berkaitan erat dengan ${primary}.`,
+        explanation: `Jawaban yang paling tepat adalah "${primary}".`
+      });
+      else output.push(makeMC(i));
+    }
+
+    if (type === 'studi_kasus' && output[0]?.options) {
+      const correctText = this.cap(primary);
+      const idx = output[0].options.findIndex(o => o.toLowerCase() === correctText.toLowerCase());
+      output.forEach(q => {
+        if (q.options) q.correct = ['A','B','C','D'][Math.max(0, idx)];
+      });
+    }
+
+    return output;
+  },
+
   // ---- SUMMARIZE TEXT (offline) ----
   summarize(text) {
     const sentences = this.getSentences(text);
@@ -2633,15 +2732,20 @@ const OfflineAI = {
   // ---- MAIN ENTRY: generate any quiz type ----
   generate(text, count, difficulty, type) {
     const t = text.substring(0, 6000);
+    let result = [];
     switch(type) {
-      case 'pilgan':     return this.genPilgan(t, count, difficulty);
-      case 'essay':      return this.genEssay(t, count, difficulty);
-      case 'benar_salah':return this.genBenarSalah(t, count);
-      case 'studi_kasus':return this.genStudiKasus(t, count, difficulty);
-      case 'teka_teki':  return this.genTekaTeki(t, count);
-      case 'ujian':      return this.genUjian(t, count, difficulty);
-      default:           return this.genPilgan(t, count, difficulty);
+      case 'pilgan':      result = this.genPilgan(t, count, difficulty); break;
+      case 'essay':       result = this.genEssay(t, count, difficulty); break;
+      case 'benar_salah': result = this.genBenarSalah(t, count); break;
+      case 'studi_kasus': result = this.genStudiKasus(t, count, difficulty); break;
+      case 'teka_teki':   result = this.genTekaTeki(t, count); break;
+      case 'ujian':       result = this.genUjian(t, count, difficulty); break;
+      default:            result = this.genPilgan(t, count, difficulty); break;
     }
+    if (!Array.isArray(result) || result.length === 0) {
+      return this.genFallback(t, count, difficulty, type);
+    }
+    return result;
   }
 };
 
@@ -3233,14 +3337,17 @@ async function generateQuizFromContent(mat, count, difficulty, type) {
   let questions;
   try {
     questions = OfflineAI.generate(content, count, difficulty, type);
+    if (!Array.isArray(questions) || questions.length === 0) {
+      questions = OfflineAI.genFallback(content, count, difficulty, type);
+    }
     if (!Array.isArray(questions) || questions.length === 0) throw new Error('empty');
   } catch (err) {
     // Cancel all pending timers, hide overlay immediately
     _qglTimers.forEach(t => clearTimeout(t));
     _qglTimers = [];
     overlay.classList.remove('show');
-    showToast('Gagal membuat soal. Pastikan materi memiliki teks yang cukup.', 'error');
-    return;
+    showToast('Gagal membuat soal. Memakai mode cadangan.', 'warning');
+    questions = OfflineAI.genFallback(content, Math.max(1, count), difficulty, type);
   }
   currentQuestions = questions;
 
@@ -3275,7 +3382,15 @@ async function generateQuizFromContent(mat, count, difficulty, type) {
   }
 
   // STEP 7 — Start the quiz (overlay is fully gone now)
-  requestAnimationFrame(() => startQuiz());
+  requestAnimationFrame(() => {
+    try {
+      startQuiz();
+    } catch (err) {
+      console.error('Start quiz error:', err);
+      showToast('Quiz gagal ditampilkan. Coba lagi.', 'error');
+      goToQuizSetup();
+    }
+  });
 }
 
 function startQuiz() {
@@ -3285,6 +3400,7 @@ function startQuiz() {
     return;
   }
 
+  switchSection('quiz');
   currentQIndex = 0;
   quizAnswers = Array(currentQuestions.length).fill(null);
   quizStartTime = Date.now();
@@ -3302,10 +3418,22 @@ function startQuiz() {
 
 function renderQuestion() {
   const q = currentQuestions[currentQIndex];
-  if (!q) return;
+  if (!q) {
+    showToast('Data soal kosong. Coba generate ulang.', 'error');
+    goToQuizSetup();
+    return;
+  }
   const num = currentQIndex + 1;
-  document.getElementById('qCurrentNum').textContent = num;
-  document.getElementById('qProgressFill').style.width = ((currentQIndex / currentQuestions.length) * 100) + '%';
+  const currentNumEl = document.getElementById('qCurrentNum');
+  const qFillEl = document.getElementById('qProgressFill');
+  const questionAreaEl = document.getElementById('questionArea');
+  const controlsEl = document.getElementById('quizControls');
+  if (!currentNumEl || !qFillEl || !questionAreaEl || !controlsEl) {
+    console.error('Quiz DOM is incomplete');
+    return;
+  }
+  currentNumEl.textContent = num;
+  qFillEl.style.width = ((currentQIndex / currentQuestions.length) * 100) + '%';
 
   // Determine effective type
   let type = currentQuizType;
@@ -3364,8 +3492,8 @@ function renderQuestion() {
   html += `<div class="answer-feedback" id="answerFeedback"></div>`;
   html += `</div>`;
 
-  document.getElementById('questionArea').innerHTML = html;
-  document.getElementById('quizControls').innerHTML = '';
+  questionAreaEl.innerHTML = html;
+  controlsEl.innerHTML = '';
 
   // Start timer
   clearInterval(timerInterval);
@@ -3387,6 +3515,7 @@ function renderQuestion() {
 
 function updateTimerDisplay() {
   const el = document.getElementById('qTimerDisplay');
+  if (!el) return;
   el.textContent = `⏱️ ${remainingTime}s`;
   el.className = remainingTime <= 10 ? 'q-timer danger' : 'q-timer';
 }
