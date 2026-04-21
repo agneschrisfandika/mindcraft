@@ -2256,15 +2256,6 @@ function hideLoading() {
   document.getElementById('loadingOverlay').classList.remove('show');
 }
 
-function escapeHtml(str = '') {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 // ---- Quiz Generation Dedicated Loading ----
 let _qglTimers = [];
 function showQuizLoading(count, type) {
@@ -2280,9 +2271,9 @@ function showQuizLoading(count, type) {
   _qglTimers = [];
 
   // Reset UI
+  overlay.style.display = '';  // clear any inline display:none from previous call
   stepIds.forEach(id => {
     const el = document.getElementById(id);
-    if (!el) return;
     el.classList.remove('active','done');
   });
   fill.style.width = '0%';
@@ -2302,14 +2293,12 @@ function showQuizLoading(count, type) {
     const t = setTimeout(() => {
       for (let i = 0; i < step; i++) {
         const el = document.getElementById(stepIds[i]);
-        if (!el) continue;
         if (!el.classList.contains('done')) {
           el.classList.remove('active');
           el.classList.add('done');
         }
       }
-      const currentStepEl = document.getElementById(stepIds[step]);
-      if (currentStepEl) currentStepEl.classList.add('active');
+      document.getElementById(stepIds[step]).classList.add('active');
       fill.style.width = pct + '%';
       label.textContent = pct + '%';
       subtitle.textContent = sub;
@@ -2601,102 +2590,6 @@ const OfflineAI = {
     return this.shuffle([...mc,...es]).slice(0,count);
   },
 
-
-  // ---- GENERATE FALLBACK (always returns a usable quiz) ----
-  genFallback(text, count, difficulty, type) {
-    const sentences = this.getSentences(text);
-    const terms = this.getKeyTerms(text);
-    const safeTerms = (terms.length ? terms : ['konsep', 'teori', 'prinsip', 'metode']).slice(0, 6).map(t => this.cap(t));
-    const primary = safeTerms[0] || 'Konsep Utama';
-    const secondary = safeTerms[1] || 'Teori';
-    const tertiary = safeTerms[2] || 'Prinsip';
-    const quaternary = safeTerms[3] || 'Metode';
-    const baseSentence = this.cap(sentences[0] || `Materi ini membahas ${primary}.`);
-
-    const makeMC = (i) => {
-      const templates = [
-        `Apa konsep utama yang paling menonjol dari materi ini?`,
-        `Apa tujuan utama dari pembahasan materi ini?`,
-        `Konsep mana yang paling relevan dengan materi yang dipelajari?`,
-        `Apa istilah kunci yang paling sering muncul pada materi ini?`,
-      ];
-      const pool = this.shuffle([primary, secondary, tertiary, quaternary].filter(Boolean));
-      const opts = this.shuffle([pool[0], pool[1] || 'A', pool[2] || 'B', pool[3] || 'C'].map(this.cap));
-      const correctText = this.cap(primary);
-      return {
-        question: templates[i % templates.length],
-        options: opts,
-        correct: ['A','B','C','D'][opts.findIndex(o => o.toLowerCase() === correctText.toLowerCase())],
-        explanation: `Istilah yang paling mewakili materi ini adalah "${correctText}".`
-      };
-    };
-
-    const makeEssay = (i) => {
-      const prompts = [
-        `Jelaskan inti dari materi ini berdasarkan pemahamanmu!`,
-        `Uraikan konsep-konsep penting yang ada pada materi ini!`,
-        `Mengapa ${primary} menjadi topik penting dalam materi ini?`,
-        `Jelaskan hubungan antara ${primary} dan ${secondary} dalam materi ini!`,
-      ];
-      return {
-        question: prompts[i % prompts.length],
-        keyPoints: [primary, secondary, tertiary],
-        modelAnswer: sentences.slice(0, 3).join(' ') || `Materi ini menjelaskan ${primary}, ${secondary}, dan ${tertiary}.`,
-        explanation: `Jawaban sebaiknya memuat ${primary}, ${secondary}, dan ${tertiary}.`
-      };
-    };
-
-    const makeTF = (i) => {
-      const statements = [
-        `${baseSentence}`,
-        `${primary} merupakan salah satu konsep penting dalam materi ini.`,
-        `${secondary} dan ${tertiary} saling berkaitan dalam pembahasan ini.`,
-        `Materi ini menekankan pemahaman terhadap ${primary}.`,
-      ];
-      return {
-        statement: statements[i % statements.length],
-        correct: true,
-        explanation: `Pernyataan ini didukung oleh isi materi, terutama pada bagian yang membahas ${primary}.`
-      };
-    };
-
-    const makeTTK = (i) => {
-      const sentence = sentences[i % Math.max(1, sentences.length)] || `Materi ini membahas _____ sebagai konsep utama.`;
-      return {
-        sentence: sentence.includes(primary) ? sentence.replace(new RegExp(primary, 'i'), '_____') : `Materi ini membahas _____ sebagai konsep utama.`,
-        blank: primary,
-        hint: `Huruf awal "${String(primary)[0] || 'K'}"`,
-        explanation: `Kata yang tepat adalah "${primary}".`
-      };
-    };
-
-    const output = [];
-    for (let i = 0; i < Math.max(1, count); i++) {
-      if (type === 'essay') output.push(makeEssay(i));
-      else if (type === 'benar_salah') output.push(makeTF(i));
-      else if (type === 'teka_teki') output.push(makeTTK(i));
-      else if (type === 'studi_kasus') output.push({
-        scenario: `Dalam konteks materi ini, peserta didik diminta memahami "${primary}".`,
-        question: `Berdasarkan skenario di atas, konsep apa yang paling tepat diterapkan?`,
-        options: this.shuffle([primary, secondary, tertiary, quaternary].map(this.cap)),
-        correct: 'A',
-        analysis: `Kasus ini berkaitan erat dengan ${primary}.`,
-        explanation: `Jawaban yang paling tepat adalah "${primary}".`
-      });
-      else output.push(makeMC(i));
-    }
-
-    if (type === 'studi_kasus' && output[0]?.options) {
-      const correctText = this.cap(primary);
-      const idx = output[0].options.findIndex(o => o.toLowerCase() === correctText.toLowerCase());
-      output.forEach(q => {
-        if (q.options) q.correct = ['A','B','C','D'][Math.max(0, idx)];
-      });
-    }
-
-    return output;
-  },
-
   // ---- SUMMARIZE TEXT (offline) ----
   summarize(text) {
     const sentences = this.getSentences(text);
@@ -2732,20 +2625,15 @@ const OfflineAI = {
   // ---- MAIN ENTRY: generate any quiz type ----
   generate(text, count, difficulty, type) {
     const t = text.substring(0, 6000);
-    let result = [];
     switch(type) {
-      case 'pilgan':      result = this.genPilgan(t, count, difficulty); break;
-      case 'essay':       result = this.genEssay(t, count, difficulty); break;
-      case 'benar_salah': result = this.genBenarSalah(t, count); break;
-      case 'studi_kasus': result = this.genStudiKasus(t, count, difficulty); break;
-      case 'teka_teki':   result = this.genTekaTeki(t, count); break;
-      case 'ujian':       result = this.genUjian(t, count, difficulty); break;
-      default:            result = this.genPilgan(t, count, difficulty); break;
+      case 'pilgan':     return this.genPilgan(t, count, difficulty);
+      case 'essay':      return this.genEssay(t, count, difficulty);
+      case 'benar_salah':return this.genBenarSalah(t, count);
+      case 'studi_kasus':return this.genStudiKasus(t, count, difficulty);
+      case 'teka_teki':  return this.genTekaTeki(t, count);
+      case 'ujian':      return this.genUjian(t, count, difficulty);
+      default:           return this.genPilgan(t, count, difficulty);
     }
-    if (!Array.isArray(result) || result.length === 0) {
-      return this.genFallback(t, count, difficulty, type);
-    }
-    return result;
   }
 };
 
@@ -3329,78 +3217,66 @@ async function generateQuizFromContent(mat, count, difficulty, type) {
   const subtitle = document.getElementById('qglSubtitle');
   const stepIds  = ['qglStep1','qglStep2','qglStep3','qglStep4'];
 
-  // STEP 1 — Show loading, let animation play (~1.8s)
+  // Show loading overlay
   showQuizLoading(count, type);
+
+  // Let the step animations play (purely visual)
   await new Promise(r => setTimeout(r, 1800));
 
-  // STEP 2 — Generate questions (synchronous, runs instantly)
-  let questions;
+  // Generate questions synchronously
+  let questions = [];
   try {
     questions = OfflineAI.generate(content, count, difficulty, type);
-    if (!Array.isArray(questions) || questions.length === 0) {
-      questions = OfflineAI.genFallback(content, count, difficulty, type);
-    }
-    if (!Array.isArray(questions) || questions.length === 0) throw new Error('empty');
-  } catch (err) {
-    // Cancel all pending timers, hide overlay immediately
+  } catch(e) { questions = []; }
+
+  if (!Array.isArray(questions) || questions.length === 0) {
+    // Cancel pending step timers and hide overlay
     _qglTimers.forEach(t => clearTimeout(t));
     _qglTimers = [];
-    overlay.classList.remove('show');
-    showToast('Gagal membuat soal. Memakai mode cadangan.', 'warning');
-    questions = OfflineAI.genFallback(content, Math.max(1, count), difficulty, type);
-  }
-  currentQuestions = questions;
-
-  try {
-    // STEP 3 — Show 100% complete state
-    _qglTimers.forEach(t => clearTimeout(t));
-    _qglTimers = [];
-    stepIds.forEach(id => {
-      const el = document.getElementById(id);
-      el.classList.remove('active');
-      el.classList.add('done');
-    });
-    fill.style.width = '100%';
-    plabel.textContent = '100%';
-    subtitle.textContent = 'Kuis berhasil dibuat! 🎉';
-
-    // STEP 4 — Let user see the 100% state for 700ms
-    await new Promise(r => setTimeout(r, 700));
-
-    // STEP 5 — Fade out the overlay (CSS transition = 0.35s)
-    overlay.classList.remove('show');
-    await new Promise(r => setTimeout(r, 380));
-
-    // STEP 6 — Update quiz count in storage
-    const mats = getMaterials();
-    const idx = mats.findIndex(m => m.id === currentMaterialId);
-    if (idx > -1) { mats[idx].quizCount++; saveMaterials(mats); }
-  } catch (err) {
-    console.error('Quiz transition error:', err);
-  } finally {
-    overlay.classList.remove('show');
-  }
-
-  // STEP 7 — Start the quiz (overlay is fully gone now)
-  requestAnimationFrame(() => {
-    try {
-      startQuiz();
-    } catch (err) {
-      console.error('Start quiz error:', err);
-      showToast('Quiz gagal ditampilkan. Coba lagi.', 'error');
-      goToQuizSetup();
-    }
-  });
-}
-
-function startQuiz() {
-  if (!Array.isArray(currentQuestions) || currentQuestions.length === 0) {
-    showToast('Soal kuis belum berhasil dibuat. Coba lagi.', 'error');
-    goToQuizSetup();
+    overlay.style.display = 'none';
+    showToast('Gagal membuat soal. Pastikan materi memiliki teks yang cukup.', 'error');
     return;
   }
 
-  switchSection('quiz');
+  // Store questions globally BEFORE any await
+  currentQuestions = questions;
+
+  // Cancel remaining step timers, set all to done
+  _qglTimers.forEach(t => clearTimeout(t));
+  _qglTimers = [];
+  stepIds.forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('active');
+    el.classList.add('done');
+  });
+  fill.style.width = '100%';
+  plabel.textContent = '100%';
+  subtitle.textContent = 'Kuis berhasil dibuat! 🎉';
+
+  // Short pause so user sees the ✓ completion state
+  await new Promise(r => setTimeout(r, 600));
+
+  // Completely remove overlay from view (no fade race condition)
+  overlay.classList.remove('show');
+  overlay.style.display = 'none';
+
+  // Update quiz count in storage
+  const mats = getMaterials();
+  const idx = mats.findIndex(m => m.id === currentMaterialId);
+  if (idx > -1) { mats[idx].quizCount++; saveMaterials(mats); }
+
+  // Make sure we're on the quiz section and start
+  if (!document.getElementById('section-quiz').classList.contains('active')) {
+    switchSection('quiz');
+  }
+  startQuiz();
+}
+
+function startQuiz() {
+  // Safety: ensure loading overlay is fully hidden
+  const qgl = document.getElementById('quizGenLoading');
+  if (qgl) { qgl.classList.remove('show'); qgl.style.display = 'none'; }
+
   currentQIndex = 0;
   quizAnswers = Array(currentQuestions.length).fill(null);
   quizStartTime = Date.now();
@@ -3413,27 +3289,15 @@ function startQuiz() {
   const typeNames = { pilgan:'Pilihan Ganda', essay:'Esai', benar_salah:'Benar/Salah', studi_kasus:'Studi Kasus', teka_teki:'Teka-Teki', ujian:'Ujian' };
   document.getElementById('quizTypeChip').textContent = typeNames[currentQuizType] || 'Kuis';
   document.getElementById('qTotalNum').textContent = currentQuestions.length;
-  requestAnimationFrame(() => renderQuestion());
+  renderQuestion();
 }
 
 function renderQuestion() {
   const q = currentQuestions[currentQIndex];
-  if (!q) {
-    showToast('Data soal kosong. Coba generate ulang.', 'error');
-    goToQuizSetup();
-    return;
-  }
+  if (!q) return;
   const num = currentQIndex + 1;
-  const currentNumEl = document.getElementById('qCurrentNum');
-  const qFillEl = document.getElementById('qProgressFill');
-  const questionAreaEl = document.getElementById('questionArea');
-  const controlsEl = document.getElementById('quizControls');
-  if (!currentNumEl || !qFillEl || !questionAreaEl || !controlsEl) {
-    console.error('Quiz DOM is incomplete');
-    return;
-  }
-  currentNumEl.textContent = num;
-  qFillEl.style.width = ((currentQIndex / currentQuestions.length) * 100) + '%';
+  document.getElementById('qCurrentNum').textContent = num;
+  document.getElementById('qProgressFill').style.width = ((currentQIndex / currentQuestions.length) * 100) + '%';
 
   // Determine effective type
   let type = currentQuizType;
@@ -3451,10 +3315,10 @@ function renderQuestion() {
 
   // For studi kasus show scenario
   if (currentQuizType === 'studi_kasus' && q.scenario) {
-    html += `<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:1rem;margin-bottom:1rem;font-size:0.875rem;color:var(--text-muted)"><strong>📖 Skenario:</strong><br>${escapeHtml(q.scenario)}</div>`;
+    html += `<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:1rem;margin-bottom:1rem;font-size:0.875rem;color:var(--text-muted)"><strong>📖 Skenario:</strong><br>${q.scenario}</div>`;
   }
 
-  html += `<div class="q-text">${escapeHtml(q.question || q.statement || q.sentence || '')}</div>`;
+  html += `<div class="q-text">${q.question || q.statement || q.sentence || ''}</div>`;
 
   if (type === 'pilgan' && q.options) {
     html += `<div class="options-list" id="optionsList">`;
@@ -3462,7 +3326,7 @@ function renderQuestion() {
     q.options.forEach((opt, i) => {
       html += `<button class="option-btn" onclick="answerMC(${i})" data-idx="${i}">
         <span class="option-label">${labels[i]}</span>
-        <span>${escapeHtml(opt)}</span>
+        <span>${opt}</span>
       </button>`;
     });
     html += `</div>`;
@@ -3472,13 +3336,13 @@ function renderQuestion() {
       <button class="option-btn" onclick="answerTF(false)" data-val="false"><span class="option-label">✗</span><span>Salah</span></button>
     </div>`;
   } else if (type === 'teka_teki') {
-    if (q.hint) html += `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">💡 Petunjuk: ${escapeHtml(q.hint)}</div>`;
+    if (q.hint) html += `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">💡 Petunjuk: ${q.hint}</div>`;
     html += `<div style="display:flex;gap:0.75rem;align-items:center">
       <input type="text" class="form-control" id="ttkInput" placeholder="Isi jawabannya..." style="flex:1" onkeypress="if(event.key==='Enter')submitTTK()">
       <button class="btn-mc btn-primary-mc btn-sm btn-w-auto" onclick="submitTTK()">Jawab</button>
     </div>`;
   } else if (type === 'essay') {
-    if (q.keyPoints?.length) html += `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">💡 Poin yang perlu dibahas: ${escapeHtml(q.keyPoints.join(', '))}</div>`;
+    if (q.keyPoints?.length) html += `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">💡 Poin yang perlu dibahas: ${q.keyPoints.join(', ')}</div>`;
     html += `<div class="essay-input-wrap">
       <textarea class="textarea-mc" id="essayInput" placeholder="Tulis jawabanmu di sini..."></textarea>
     </div>
@@ -3492,8 +3356,8 @@ function renderQuestion() {
   html += `<div class="answer-feedback" id="answerFeedback"></div>`;
   html += `</div>`;
 
-  questionAreaEl.innerHTML = html;
-  controlsEl.innerHTML = '';
+  document.getElementById('questionArea').innerHTML = html;
+  document.getElementById('quizControls').innerHTML = '';
 
   // Start timer
   clearInterval(timerInterval);
@@ -3515,7 +3379,6 @@ function renderQuestion() {
 
 function updateTimerDisplay() {
   const el = document.getElementById('qTimerDisplay');
-  if (!el) return;
   el.textContent = `⏱️ ${remainingTime}s`;
   el.className = remainingTime <= 10 ? 'q-timer danger' : 'q-timer';
 }
@@ -3622,8 +3485,8 @@ function showFeedback(correct, title, explanation) {
   const el = document.getElementById('answerFeedback');
   el.className = `answer-feedback show ${correct ? 'feedback-correct' : 'feedback-wrong'}`;
   el.innerHTML = `
-    <div class="feedback-title">${escapeHtml(title)}</div>
-    <div class="feedback-explanation">${escapeHtml(explanation).replace(/\n/g,'<br>')}</div>
+    <div class="feedback-title">${title}</div>
+    <div class="feedback-explanation">${explanation.replace(/\n/g,'<br>')}</div>
   `;
 }
 
@@ -3726,7 +3589,7 @@ function reviewQuiz() {
 
 function renderReview() {
   const list = document.getElementById('reviewList');
-  const labels = ['A','B','C','D','E'];
+  const labels = ['A','B','C','D'];
   list.innerHTML = currentQuestions.map((q, i) => {
     const ans = quizAnswers[i];
     const correct = ans?.correct;
@@ -3736,10 +3599,10 @@ function renderReview() {
           <span class="chip ${correct?'chip-green':'chip-red'}">${correct?'✅ Benar':'❌ Salah'}</span>
           <span style="font-size:0.8rem;color:var(--text-muted)">Soal ${i+1}</span>
         </div>
-        <div style="font-weight:600;margin-bottom:0.75rem;font-size:0.9rem">${escapeHtml(q.question||q.statement||q.sentence||'')}</div>
-        ${ans?.answer!=null?`<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem">Jawabanmu: <strong style="color:${correct?'var(--success)':'var(--danger)'}">${escapeHtml(ans.answer)}</strong></div>`:''}
-        ${q.correct||q.blank?`<div style="font-size:0.8rem;color:var(--success);margin-bottom:0.5rem">Jawaban benar: <strong>${escapeHtml(q.correct||q.blank)}</strong></div>`:''}
-        ${q.explanation?`<div style="font-size:0.8rem;color:var(--text-muted);background:var(--bg-3);padding:0.75rem;border-radius:8px">💡 ${escapeHtml(q.explanation)}</div>`:''}
+        <div style="font-weight:600;margin-bottom:0.75rem;font-size:0.9rem">${q.question||q.statement||q.sentence||''}</div>
+        ${ans?.answer!=null?`<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem">Jawabanmu: <strong style="color:${correct?'var(--success)':'var(--danger)'}">${ans.answer}</strong></div>`:''}
+        ${q.correct||q.blank?`<div style="font-size:0.8rem;color:var(--success);margin-bottom:0.5rem">Jawaban benar: <strong>${q.correct||q.blank}</strong></div>`:''}
+        ${q.explanation?`<div style="font-size:0.8rem;color:var(--text-muted);background:var(--bg-3);padding:0.75rem;border-radius:8px">💡 ${q.explanation}</div>`:''}
       </div>
     `;
   }).join('');
