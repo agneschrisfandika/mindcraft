@@ -4974,5 +4974,22 @@ window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js')
   }
 </script>
+
+<script>
+  // Register Service Worker
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("service-worker.js")
+      .then(reg => console.log("SW terdaftar:", reg))
+      .catch(err => console.error("SW gagal:", err));
+  }
+
+  // Minta izin notifikasi
+  if ("Notification" in window) {
+    Notification.requestPermission().then(permission => {
+      console.log("Izin notifikasi:", permission);
+    });
+  }
+</script>
+
 </body>
 </html>
