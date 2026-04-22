@@ -15,7 +15,450 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <!-- File extraction libraries -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js">
+
+// ==================== QUIZ & MATERIAL ROBUST PATCH ====================
+(function() {
+  const DOC_EXTS = new Set(['doc', 'docx']);
+  const PDF_EXTS = new Set(['pdf']);
+  const MAX_FALLBACK_CHARS = 20000;
+
+  function loadScriptOnce(src) {
+    return new Promise((resolve, reject) => {
+      const existing = [...document.scripts].find(s => s.src === src);
+      if (existing) {
+        if (existing.dataset.loaded === '1') return resolve();
+        existing.addEventListener('load', () => resolve(), { once: true });
+        existing.addEventListener('error', () => reject(new Error(`Gagal memuat ${src}`)), { once: true });
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.dataset.dynamic = '1';
+      s.addEventListener('load', () => { s.dataset.loaded = '1'; resolve(); }, { once: true });
+      s.addEventListener('error', () => reject(new Error(`Gagal memuat ${src}`)), { once: true });
+      document.head.appendChild(s);
+    });
+  }
+
+  function normalizeMaterialText(raw) {
+    if (!raw) return '';
+    let text = String(raw)
+      .replace(/\u0000/g, ' ')
+      .replace(/\r\n?/g, '\n')
+      .replace(/__PDF_BASE64__[^\n]*/g, ' ')
+      .replace(/\[PDF Document\]/gi, ' ')
+      .replace(/\s{3,}/g, ' ')
+      .trim();
+
+    // Remove obvious binary noise while keeping readable Latin characters.
+    text = text
+      .split('\n')
+      .map(line => line.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ' ').trim())
+      .filter(Boolean)
+      .join('\n');
+
+    return text.substring(0, MAX_FALLBACK_CHARS);
+  }
+
+  function byteFallbackText(arrayBuffer) {
+    try {
+      const decoder = new TextDecoder('utf-8', { fatal: false });
+      const decoded = decoder.decode(arrayBuffer);
+      return normalizeMaterialText(decoded);
+    } catch {
+      const bytes = new Uint8Array(arrayBuffer);
+      let out = '';
+      for (let i = 0; i < Math.min(bytes.length, MAX_FALLBACK_CHARS * 2); i++) {
+        const ch = bytes[i];
+        if (ch === 9 || ch === 10 || ch === 13 || (ch >= 32 && ch <= 126) || ch >= 160) out += String.fromCharCode(ch);
+        else out += ' ';
+      }
+      return normalizeMaterialText(out);
+    }
+  }
+
+  async function extractDocxText(file) {
+    try {
+      if (typeof mammoth === 'undefined') {
+        await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js');
+      }
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      return normalizeMaterialText(result?.value || '');
+    } catch (err) {
+      // DOCX fallback: try a readable byte decode so the user can still save text.
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        return byteFallbackText(arrayBuffer);
+      } catch {
+        return '';
+      }
+    }
+  }
+
+  async function extractPdfText(file) {
+    try {
+      if (typeof pdfjsLib === 'undefined') {
+        await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+      }
+      if (pdfjsLib?.GlobalWorkerOptions) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = '';
+      for (let i = 1; i <= Math.min(pdf.numPages, 75); i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(' ');
+        fullText += pageText + '\n';
+      }
+      return normalizeMaterialText(fullText);
+    } catch (err) {
+      // PDF fallback: decode raw bytes into the closest readable text possible.
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        return byteFallbackText(arrayBuffer);
+      } catch {
+        return '';
+      }
+    }
+  }
+
+  function collectSourceText(mat) {
+    const candidates = [
+      mat?.rawContent,
+      mat?.content,
+      mat?.summary,
+      ...(Array.isArray(mat?.topics) ? mat.topics : [])
+    ];
+    return normalizeMaterialText(candidates.filter(Boolean).join('\n\n'));
+  }
+
+  function buildGenericQuiz(text, count, type, difficulty) {
+    const clean = normalizeMaterialText(text);
+    const sentences = OfflineAI.getSentences(clean);
+    const terms = OfflineAI.getKeyTerms(clean).slice(0, 15);
+    const topics = terms.length ? terms : ['materi', 'konsep', 'topik', 'pembahasan'];
+    const firstSentence = sentences[0] || clean.split(/[\n\.\?!]/).find(Boolean) || 'Materi pembelajaran ini.';
+
+    const baseQuestion = {
+      pilgan: () => ({
+        question: 'Topik mana yang paling mewakili materi ini?',
+        options: [
+          topics[0] || 'Konsep Utama',
+          topics[1] || 'Pembahasan Tambahan',
+          topics[2] || 'Contoh Pendukung',
+          topics[3] || 'Catatan Ringkas'
+        ].map(t => String(t).replace(/\s+/g, ' ').trim()),
+        correct: 'A',
+        explanation: `Jawaban paling dekat dengan materi adalah "${topics[0] || 'Konsep Utama'}".`
+      }),
+      essay: () => ({
+        question: 'Jelaskan inti materi yang baru saja dipelajari.',
+        keyPoints: topics.slice(0, 4),
+        modelAnswer: sentences.slice(0, 3).join(' ') || clean.substring(0, 400),
+        explanation: `Fokus pada poin: ${topics.slice(0, 4).join(', ')}.`
+      }),
+      benar_salah: () => ({
+        statement: `Materi ini membahas ${topics[0] || 'konsep utama'} secara umum.`,
+        correct: true,
+        explanation: firstSentence
+      }),
+      studi_kasus: () => ({
+        scenario: `Seorang pelajar perlu menerapkan konsep ${topics[0] || 'utama'} dalam situasi nyata.`,
+        question: 'Pendekatan apa yang paling tepat untuk menyelesaikan kasus tersebut?',
+        options: [topics[0] || 'Konsep Utama', topics[1] || 'Alternatif', topics[2] || 'Pendukung', topics[3] || 'Pelengkap'],
+        correct: 'A',
+        analysis: firstSentence,
+        explanation: `Gunakan konsep ${topics[0] || 'utama'} sebagai dasar jawaban.`
+      }),
+      teka_teki: () => ({
+        sentence: firstSentence.includes(topics[0]) ? firstSentence.replace(new RegExp(`\\b${topics[0]}\\b`, 'i'), '_____') : `${firstSentence} _____`,
+        blank: topics[0] || 'konsep',
+        hint: `Terkait dengan ${topics[0] || 'materi utama'}`,
+        explanation: `Kata yang tepat adalah "${topics[0] || 'konsep'}".`
+      }),
+      ujian: () => null
+    };
+
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      if (type === 'ujian') {
+        out.push(...(i % 2 === 0 ? [buildGenericQuiz(clean, 1, 'pilgan', difficulty)[0]] : [buildGenericQuiz(clean, 1, 'essay', difficulty)[0]]));
+        continue;
+      }
+      const item = baseQuestion[type] ? baseQuestion[type]() : baseQuestion.pilgan();
+      if (type === 'pilgan' && i > 0) {
+        item.question = `Berdasarkan materi, pilihan mana yang paling relevan untuk soal ${i + 1}?`;
+        item.options = [topics[i % topics.length] || 'Konsep Utama', topics[(i + 1) % topics.length] || 'Poin Tambahan', topics[(i + 2) % topics.length] || 'Istilah Terkait', topics[(i + 3) % topics.length] || 'Ringkasan'].slice(0, 4);
+        item.correct = 'A';
+      }
+      if (type === 'benar_salah' && i > 0) {
+        item.statement = `${topics[i % topics.length] || 'Topik'} adalah bagian penting dari materi ini.`;
+      }
+      if (type === 'teka_teki' && i > 0) {
+        item.sentence = sentences[i % sentences.length]
+          ? sentences[i % sentences.length].replace(new RegExp(`\\b${topics[0]}\\b`, 'i'), '_____')
+          : `${topics[0] || 'konsep'} _____`;
+        item.hint = `Terkait ${topics[i % topics.length] || 'materi utama'}`;
+      }
+      if (type === 'studi_kasus' && i > 0) {
+        item.scenario = `Dalam situasi pembelajaran, peserta didik perlu memahami ${topics[i % topics.length] || 'konsep utama'} untuk mengambil keputusan.`;
+      }
+      if (type === 'essay' && i > 0) {
+        item.question = `Uraikan peran ${topics[i % topics.length] || 'konsep utama'} dalam materi ini.`;
+      }
+      out.push(item);
+    }
+    return out.filter(Boolean).slice(0, count);
+  }
+
+  function ensureQuizCount(questions, text, count, type, difficulty) {
+    const list = Array.isArray(questions) ? questions.filter(Boolean) : [];
+    if (list.length >= count) return list.slice(0, count);
+
+    const fallback = buildGenericQuiz(text, count - list.length, type, difficulty);
+    return [...list, ...fallback].slice(0, count);
+  }
+
+  // --- Override file handlers ---
+  window.handleDrop = async function handleDrop(e) {
+    e.preventDefault();
+    const zone = document.getElementById('uploadZone');
+    if (zone) zone.classList.remove('drag-over');
+    const file = e.dataTransfer?.files?.[0];
+    if (file) await window.processFile(file);
+  };
+
+  window.handleFileSelect = async function handleFileSelect(e) {
+    const file = e.target?.files?.[0];
+    if (file) await window.processFile(file);
+  };
+
+  window.processFile = async function processFile(file) {
+    try {
+      if (!file) return;
+      currentFileName = file.name;
+      currentFileContent = '';
+      window.currentFileFallbackText = '';
+      document.getElementById('materialName').value = file.name.replace(/\.[^.]+$/, '');
+      const chipEl = document.getElementById('selectedFileChip');
+      if (chipEl) {
+        chipEl.style.display = 'block';
+        chipEl.innerHTML = `<div class="uploaded-file-chip">📄 ${escapeHtml(file.name)} <span style="color:var(--success)">(${(file.size/1024).toFixed(1)} KB)</span></div>`;
+      }
+
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      showToast(`Membaca isi file "${file.name}"...`, 'info');
+
+      let text = '';
+      if (DOC_EXTS.has(ext)) {
+        text = await extractDocxText(file);
+      } else if (PDF_EXTS.has(ext)) {
+        text = await extractPdfText(file);
+      } else if (ext === 'txt' || ext === 'md' || ext === 'csv' || ext === 'json') {
+        text = normalizeMaterialText(await file.text());
+      } else {
+        // Try plain text extraction anyway before giving up.
+        text = normalizeMaterialText(await file.text());
+      }
+
+      text = normalizeMaterialText(text);
+      if (!text || text.length < 20) {
+        currentFileContent = '';
+        window.currentFileFallbackText = '';
+        showToast('Isi file belum terbaca dengan baik. Gunakan mode Teks atau Rekam untuk hasil terbaik.', 'warning', 4500);
+        return;
+      }
+
+      currentFileContent = text;
+      window.currentFileFallbackText = text;
+      const kind = DOC_EXTS.has(ext) ? 'dokumen Word' : PDF_EXTS.has(ext) ? 'PDF' : 'file';
+      showToast(`✅ Berhasil membaca ${kind} (${text.length} karakter)`, 'success');
+    } catch (err) {
+      console.error('processFile error:', err);
+      currentFileContent = '';
+      window.currentFileFallbackText = '';
+      showToast('Gagal membaca file. Silakan gunakan mode Teks atau Rekam.', 'error');
+    }
+  };
+
+  // --- Override material saving so file/text/audio all become clean text first ---
+  window.processMaterial = async function processMaterial() {
+    let content = '';
+    let name = document.getElementById('materialName')?.value.trim() || '';
+
+    if (currentUploadMode === 'file') {
+      content = normalizeMaterialText(currentFileContent || window.currentFileFallbackText || '');
+      if (!content) { showToast('Pilih file terlebih dahulu atau gunakan mode Teks', 'error'); return; }
+    } else if (currentUploadMode === 'text') {
+      content = normalizeMaterialText(document.getElementById('textMaterialContent')?.value || '');
+      if (!content) { showToast('Masukkan teks materi', 'error'); return; }
+      if (!name) name = normalizeMaterialText(document.getElementById('textMaterialTitle')?.value || '') || 'Materi Teks';
+    } else {
+      content = normalizeMaterialText(currentFileContent || '');
+      if (!content) { showToast('Rekam atau proses audio terlebih dahulu', 'error'); return; }
+    }
+
+    if (!name) { showToast('Masukkan nama materi', 'error'); return; }
+    if (name.length < 3) { showToast('Nama materi terlalu pendek', 'error'); return; }
+
+    showLoading('Menganalisis materi dengan AI');
+
+    let summary = '';
+    let topics = [];
+    try {
+      const result = OfflineAI.summarize(content);
+      summary = result?.summary || content.substring(0, 500);
+      topics = Array.isArray(result?.topics) && result.topics.length ? result.topics : ['Topik Utama'];
+    } catch (err) {
+      summary = content.substring(0, 500);
+      topics = ['Topik Utama'];
+    }
+
+    const mat = {
+      id: Date.now(),
+      name,
+      content,
+      rawContent: content,
+      summary,
+      topics,
+      createdAt: Date.now(),
+      quizCount: 0
+    };
+
+    const mats = getMaterials();
+    mats.unshift(mat);
+    saveMaterials(mats);
+
+    // Reset form state
+    currentFileContent = '';
+    window.currentFileFallbackText = '';
+    currentFileName = '';
+    const fileInput = document.getElementById('fileInput');
+    const materialNameEl = document.getElementById('materialName');
+    const textContentEl = document.getElementById('textMaterialContent');
+    const textTitleEl = document.getElementById('textMaterialTitle');
+    const chip = document.getElementById('selectedFileChip');
+    if (materialNameEl) materialNameEl.value = '';
+    if (fileInput) fileInput.value = '';
+    if (textContentEl) textContentEl.value = '';
+    if (textTitleEl) textTitleEl.value = '';
+    if (chip) chip.style.display = 'none';
+    const counter = document.getElementById('charCount');
+    if (counter) counter.textContent = '0 karakter';
+
+    hideLoading();
+    renderSavedMaterials();
+    renderQuizMaterialSelect();
+    updateHomeStats();
+    showToast(`Materi "${name}" berhasil disimpan! 🎉`, 'success');
+  };
+
+  // --- Override quiz generation to ensure it always starts with usable questions ---
+  window.generateQuiz = async function generateQuiz() {
+    const matId = parseInt(document.getElementById('quizMaterialSelect').value);
+    const count = parseInt(document.getElementById('quizCount').value);
+    const difficulty = document.getElementById('quizDifficulty').value;
+    quizTimerSetting = parseInt(document.getElementById('quizTimer').value);
+
+    if (!matId) { showToast('Pilih materi terlebih dahulu', 'error'); return; }
+
+    const mat = getMaterials().find(m => m.id === matId);
+    if (!mat) { showToast('Materi tidak ditemukan', 'error'); return; }
+
+    currentMaterialId = matId;
+    await window.generateQuizFromContent(mat, count, difficulty, currentQuizType);
+  };
+
+  window.generateQuizFromContent = async function generateQuizFromContent(mat, count, difficulty, type) {
+    const baseText = collectSourceText(mat);
+    const content = baseText || normalizeMaterialText(mat?.summary || '') || normalizeMaterialText((mat?.topics || []).join(' '));
+    const sourceText = content.substring(0, 12000);
+
+    if (!sourceText) {
+      showToast('Materi belum memiliki teks yang cukup. Gunakan mode Teks atau Rekam.', 'error');
+      return;
+    }
+
+    const overlay  = document.getElementById('quizGenLoading');
+    const fill     = document.getElementById('qglProgressFill');
+    const plabel   = document.getElementById('qglProgressLabel');
+    const subtitle = document.getElementById('qglSubtitle');
+    const stepIds  = ['qglStep1','qglStep2','qglStep3','qglStep4'];
+
+    showQuizLoading(count, type);
+    await new Promise(r => setTimeout(r, 1200));
+
+    let questions = [];
+    try {
+      questions = OfflineAI.generate(sourceText, count, difficulty, type);
+    } catch (err) {
+      console.warn('OfflineAI.generate gagal, memakai fallback', err);
+    }
+
+    questions = ensureQuizCount(questions, sourceText, count, type, difficulty);
+    if (!Array.isArray(questions) || questions.length === 0) {
+      _qglTimers.forEach(t => clearTimeout(t));
+      _qglTimers = [];
+      overlay.classList.remove('show');
+      showToast('Gagal membuat soal. Coba gunakan teks yang lebih lengkap.', 'error');
+      return;
+    }
+
+    currentQuestions = questions;
+
+    try {
+      _qglTimers.forEach(t => clearTimeout(t));
+      _qglTimers = [];
+      stepIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.remove('active');
+          el.classList.add('done');
+        }
+      });
+      if (fill) fill.style.width = '100%';
+      if (plabel) plabel.textContent = '100%';
+      if (subtitle) subtitle.textContent = 'Kuis berhasil dibuat! 🎉';
+
+      await new Promise(r => setTimeout(r, 500));
+      overlay.classList.remove('show');
+      await new Promise(r => setTimeout(r, 300));
+
+      const mats = getMaterials();
+      const idx = mats.findIndex(m => m.id === currentMaterialId);
+      if (idx > -1) {
+        mats[idx].quizCount = (mats[idx].quizCount || 0) + 1;
+        saveMaterials(mats);
+      }
+    } catch (err) {
+      console.error('Quiz transition error:', err);
+      overlay.classList.remove('show');
+    }
+
+    requestAnimationFrame(() => startQuiz());
+    setTimeout(() => {
+      if (document.getElementById('quizPlayView')?.style.display !== 'block' && currentQuestions.length) {
+        startQuiz();
+      }
+    }, 120);
+  };
+
+  // Make startup resilient when CDN libraries fail or internet is patchy.
+  window.ensureMindCraftExtractionLibs = async function ensureMindCraftExtractionLibs() {
+    const tasks = [];
+    if (typeof mammoth === 'undefined') tasks.push(loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js'));
+    if (typeof pdfjsLib === 'undefined') tasks.push(loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'));
+    try { await Promise.all(tasks); } catch (err) { console.warn('Extraction libs not fully available:', err); }
+  };
+})();
+// ==================== END ROBUST PATCH ====================
+
+</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <style>
     /* ===== CSS VARIABLES ===== */
