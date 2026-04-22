@@ -1,592 +1,797 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="id" data-bs-theme="dark">
 
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#6366f1" />
-    <link rel="icon" href="icons/icon-192x192-A.png" type="image/png" />
-    <link rel="manifest" href="manifest.json">
-    <!-- manifest.json itu untuk menentukan alur atau melihat data data itu berasal dari mana -->
-    <title>TaskFlow - Kelola Tugas Anda</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#7c3aed">
+  <link rel="manifest" href="data:application/manifest+json,{name:'MindCraft',short_name:'MindCraft',theme_color:'%237c3aed',background_color:'%230d1117',display:'standalone',icons:[{src:'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 100 100\'%3E%3Crect width=\'100\' height=\'100\' rx=\'20\' fill=\'%237c3aed\'/%3E%3Ctext x=\'50\' y=\'68\' font-size=\'50\' text-anchor=\'middle\' fill=\'white\' font-family=\'Arial\'%3E🧠%3C/text%3E%3C/svg%3E',sizes:'192x192',type:'image/svg+xml'}]}">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%237c3aed'/%3E%3Ctext x='50' y='68' font-size='50' text-anchor='middle' fill='white' font-family='Arial'%3E🧠%3C/text%3E%3C/svg%3E">
+  <title>MindCraft · Belajar Cerdas</title>
+  <!-- Bootstrap 5 + Icons + Fonts -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300..800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    /* ===== VARIABLES & BASE ===== */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Sora', sans-serif;
+      background: #0d1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding-bottom: 80px;
+    }
+    ::selection { background: #7c3aed; color: white; }
+    .glass-card {
+      background: rgba(22, 27, 34, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+    .page { display: none; }
+    .page.active { display: block; }
+    .section { display: none; animation: fade 0.3s ease; }
+    .section.active { display: block; }
+    @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-        :root {
-            --primary: #6366f1;
-            --primary-dark: #4f46e5;
-            --primary-light: #818cf8;
-            --bg-dark: #ffffff;
-            --bg-card: #1e293b;
-            --text-light: #f8fafc;
-            --text-gray: #cbd5e1;
-            --success: #22c55e;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-        }
+    /* Auth Pages */
+    .auth-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background: radial-gradient(ellipse at 50% -20%, rgba(124,58,237,0.2) 0%, transparent 60%);
+    }
+    .auth-card {
+      background: #161b22;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 28px;
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 420px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, var(--bg-dark) 0%, #1856bb 100%);
-            color: var(--text-light);
-            min-height: 100vh;
-            padding-bottom: 80px;
-        }
+    /* Bottom Navigation */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background: rgba(13,17,23,0.95);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid #2d3748;
+      display: flex;
+      padding: 8px 12px;
+      padding-bottom: calc(8px + env(safe-area-inset-bottom));
+      z-index: 1000;
+    }
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 8px 0;
+      cursor: pointer;
+      color: #9ca3af;
+      transition: all 0.2s;
+      border: none;
+      background: none;
+    }
+    .nav-item.active { color: #a78bfa; }
+    .nav-item i { font-size: 1.4rem; }
+    .nav-item span { font-size: 0.7rem; }
 
-        .header {
-            background: #1856bb;
-            backdrop-filter: blur(10px);
-            padding: 20px;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            border-bottom: 1px solid rgba(99, 102, 241, 0.2);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-        }
+    /* Quiz Components */
+    .quiz-option {
+      background: #1e2329;
+      border: 1.5px solid #374151;
+      border-radius: 16px;
+      padding: 16px 18px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .quiz-option.selected-correct {
+      background: #14532d !important;
+      border-color: #22c55e !important;
+    }
+    .quiz-option.selected-wrong {
+      background: #7f1d1d !important;
+      border-color: #ef4444 !important;
+    }
+    .progress-thin { height: 6px; border-radius: 10px; }
 
-        .header-content {
-            max-width: 800px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+    /* Loading Overlays */
+    .loader-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(13,17,23,0.9);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    .loader-overlay.show { opacity: 1; pointer-events: all; }
+    .confetti-container { position: fixed; inset: 0; pointer-events: none; z-index: 9000; }
 
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .logo-icon {
-            width: 40px;
-            height: 40px;
-            background: linear-gradient(135deg, var(--primary), var(--primary-light));
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-        }
-
-        h1 {
-            font-size: 24px;
-            font-weight: 700;
-        }
-
-        .stats {
-            display: flex;
-            gap: 16px;
-            font-size: 14px;
-            color: var(--text-gray);
-        }
-
-        .stat-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .stat-number {
-            color: var(--primary-light);
-            font-weight: 700;
-        }
-
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 24px 20px;
-        }
-
-        .input-section {
-            background: var(--bg-card);
-            padding: 24px;
-            border-radius: 16px;
-            margin-bottom: 24px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(99, 102, 241, 0.1);
-        }
-
-        .input-group {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 16px;
-        }
-
-        input[type="text"] {
-            flex: 1;
-            padding: 14px 18px;
-            background: var(--bg-dark);
-            border: 2px solid rgba(99, 102, 241, 0.3);
-            border-radius: 12px;
-            color: var(--text-light);
-            font-size: 16px;
-            transition: all 0.3s ease;
-        }
-
-        input[type="text"]:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
-        }
-
-        .btn {
-            padding: 14px 28px;
-            border: none;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary), var(--primary-light));
-            color: white;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
-        }
-
-        .btn-primary:active {
-            transform: translateY(0);
-        }
-
-        .priority-selector {
-            display: flex;
-            gap: 8px;
-        }
-
-        .priority-btn {
-            flex: 1;
-            padding: 10px;
-            border: 2px solid rgba(255, 255, 255, 0.1);
-            background: transparent;
-            color: var(--text-gray);
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 14px;
-        }
-
-        .priority-btn.active {
-            border-color: currentColor;
-            background: rgba(255, 255, 255, 0.1);
-            font-weight: 600;
-        }
-
-        .priority-btn.high {
-            color: var(--danger);
-        }
-
-        .priority-btn.medium {
-            color: var(--warning);
-        }
-
-        .priority-btn.low {
-            color: var(--success);
-        }
-
-        .filter-tabs {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 20px;
-            overflow-x: auto;
-            padding-bottom: 4px;
-        }
-
-        .filter-tab {
-            padding: 10px 20px;
-            background: var(--bg-card);
-            border: 2px solid transparent;
-            border-radius: 20px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            white-space: nowrap;
-            font-size: 14px;
-            font-weight: 500;
-            color: #ffffff;
-        }
-
-        .filter-tab.active {
-            background: var(--primary);
-            border-color: var(--primary-light);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-        }
-
-        .tasks-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .task-item {
-            background: var(--bg-card);
-            padding: 20px;
-            border-radius: 12px;
-            border-left: 4px solid;
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            transition: all 0.3s ease;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .task-item:hover {
-            transform: translateX(4px);
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-        }
-
-        .task-item.high {
-            border-left-color: var(--danger);
-        }
-
-        .task-item.medium {
-            border-left-color: var(--warning);
-        }
-
-        .task-item.low {
-            border-left-color: var(--success);
-        }
-
-        .task-checkbox {
-            width: 24px;
-            height: 24px;
-            border: 2px solid var(--primary);
-            border-radius: 6px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-            transition: all 0.3s ease;
-        }
-
-        .task-checkbox:hover {
-            background: rgba(99, 102, 241, 0.1);
-        }
-
-        .task-checkbox.checked {
-            background: var(--primary);
-        }
-
-        .task-content {
-            flex: 1;
-        }
-
-        .task-text {
-            font-size: 16px;
-            margin-bottom: 4px;
-        }
-
-        .task-text.completed {
-            text-decoration: line-through;
-            opacity: 0.6;
-        }
-
-        .task-meta {
-            display: flex;
-            gap: 12px;
-            font-size: 12px;
-            color: var(--text-gray);
-        }
-
-        .task-time {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .task-actions {
-            display: flex;
-            gap: 8px;
-        }
-
-        .btn-icon {
-            width: 36px;
-            height: 36px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s ease;
-            font-size: 18px;
-        }
-
-        .btn-delete {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--danger);
-        }
-
-        .btn-delete:hover {
-            background: var(--danger);
-            color: white;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: var(--text-gray);
-        }
-
-        .empty-icon {
-            font-size: 64px;
-            margin-bottom: 16px;
-            opacity: 0.5;
-        }
-
-        .progress-bar {
-            background: var(--bg-card);
-            height: 8px;
-            border-radius: 4px;
-            overflow: hidden;
-            margin: 16px 0;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary), var(--primary-light));
-            transition: width 0.5s ease;
-            border-radius: 4px;
-        }
-
-        @media (max-width: 640px) {
-            .header-content {
-                flex-direction: column;
-                gap: 12px;
-            }
-
-            .input-group {
-                flex-direction: column;
-            }
-
-            .stats {
-                width: 100%;
-                justify-content: space-around;
-            }
-        }
-
-        .logo h1 {
-            font-size: 50px;
-            font-weight: 800;
-        }
-    </style>
+    /* Voice Recorder */
+    .rec-btn {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      border: none;
+      font-size: 2rem;
+      box-shadow: 0 0 24px rgba(124,58,237,0.4);
+      transition: all 0.2s;
+    }
+    .rec-btn.recording {
+      background: #ef4444;
+      box-shadow: 0 0 24px rgba(239,68,68,0.5);
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.05)} }
+  </style>
 </head>
-
 <body>
-    <header class="header">
-        <div class="header-content">
-            <div class="logo">
-                <div class="logo-icon">✓</div>
-                <h1 class="text-judul">TaskFlow</h1>
-            </div>
-            <div class="stats">
-                <div class="stat-item">
-                    <span>📝</span>
-                    <span>Total: <span class="stat-number" id="totalTasks">0</span></span>
-                </div>
-                <div class="stat-item">
-                    <span>✅</span>
-                    <span>Selesai: <span class="stat-number" id="completedTasks">0</span></span>
-                </div>
-            </div>
-        </div>
-    </header>
 
-    <div class="container">
-        <div class="input-section">
-            <div class="input-group">
-                <input type="text" id="taskInput" placeholder="Tambahkan tugas baru..."
-                    onkeypress="if(event.key==='Enter') addTask()" />
-                <button class="btn btn-primary" onclick="addTask()">
-                    <span>➕</span>
-                    <span>Tambah</span>
-                </button>
-            </div>
-            <div class="priority-selector">
-                <button class="priority-btn high" onclick="setPriority('high')">🔴 Tinggi</button>
-                <button class="priority-btn medium active" onclick="setPriority('medium')">🟡 Sedang</button>
-                <button class="priority-btn low" onclick="setPriority('low')">🟢 Rendah</button>
-            </div>
-            <div class="progress-bar">
-                <div class="progress-fill" id="progressBar" style="width: 0%"></div>
-            </div>
-        </div>
+<!-- Toast Container -->
+<div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 9999"></div>
 
-        <div class="filter-tabs">
-            <button class="filter-tab active" onclick="filterTasks('all')">Semua</button>
-            <button class="filter-tab" onclick="filterTasks('active')">Aktif</button>
-            <button class="filter-tab" onclick="filterTasks('completed')">Selesai</button>
-            <button class="filter-tab" onclick="filterTasks('high')">🔴 Prioritas Tinggi</button>
-            <button class="filter-tab" onclick="filterTasks('medium')">🟡 Prioritas Sedang</button>
-            <button class="filter-tab" onclick="filterTasks('low')">🟢 Prioritas Rendah</button>
-        </div>
+<!-- Global Loader -->
+<div class="loader-overlay" id="globalLoader">
+  <div class="text-center">
+    <div class="spinner-border text-light mb-3" style="width:3rem;height:3rem"></div>
+    <p class="text-secondary" id="loaderText">Memproses...</p>
+  </div>
+</div>
 
-        <div class="tasks-list" id="tasksList"></div>
+<!-- Confetti Container -->
+<div class="confetti-container" id="confettiContainer"></div>
+
+<!-- ========== AUTH PAGES ========== -->
+<div id="login-page" class="page auth-page">
+  <div class="auth-card">
+    <div class="text-center mb-4">
+      <div style="width:70px;height:70px;background:linear-gradient(135deg,#7c3aed,#a855f7);border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 16px;box-shadow:0 0 32px rgba(124,58,237,0.3)">🧠</div>
+      <h2 class="fw-bold">MindCraft</h2>
+      <p class="text-secondary">Masuk untuk melanjutkan belajar</p>
     </div>
+    <div class="mb-3">
+      <label class="form-label">Email</label>
+      <input type="email" class="form-control bg-dark text-light" id="loginEmail" placeholder="nama@email.com">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Password</label>
+      <input type="password" class="form-control bg-dark text-light" id="loginPassword" placeholder="••••••••">
+    </div>
+    <div class="form-check mb-3">
+      <input class="form-check-input" type="checkbox" id="rememberMe">
+      <label class="form-check-label">Ingat saya</label>
+    </div>
+    <button class="btn w-100" style="background:#7c3aed;color:white" onclick="handleLogin()">Masuk</button>
+    <p class="text-center mt-3"><a href="#" class="text-decoration-none" onclick="showPage('register-page')">Belum punya akun? Daftar</a></p>
+    <p class="text-center"><a href="#" class="text-decoration-none" onclick="showPage('forgot-page')">Lupa password?</a></p>
+  </div>
+</div>
 
-    <script>
-        let tasks = [];
-        let currentPriority = 'medium';
-        let currentFilter = 'all';
+<div id="register-page" class="page auth-page">
+  <div class="auth-card">
+    <div class="text-center mb-4">
+      <div style="width:70px;height:70px;background:linear-gradient(135deg,#7c3aed,#a855f7);border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 16px;">🧠</div>
+      <h2 class="fw-bold">Daftar</h2>
+      <p class="text-secondary">Buat akun MindCraft</p>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Nama Lengkap</label>
+      <input type="text" class="form-control bg-dark text-light" id="regName" placeholder="Nama kamu">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Email</label>
+      <input type="email" class="form-control bg-dark text-light" id="regEmail" placeholder="nama@email.com">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Password</label>
+      <input type="password" class="form-control bg-dark text-light" id="regPassword" placeholder="Min. 6 karakter">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Konfirmasi Password</label>
+      <input type="password" class="form-control bg-dark text-light" id="regConfirm" placeholder="Ulangi password">
+    </div>
+    <button class="btn w-100" style="background:#7c3aed;color:white" onclick="handleRegister()">Daftar</button>
+    <p class="text-center mt-3"><a href="#" class="text-decoration-none" onclick="showPage('login-page')">Sudah punya akun? Masuk</a></p>
+  </div>
+</div>
 
-        function loadTasks() {
-            const saved = localStorage.getItem('taskflow_tasks');
-            if (saved) {
-                tasks = JSON.parse(saved);
-                renderTasks();
-            }
+<div id="forgot-page" class="page auth-page">
+  <div class="auth-card">
+    <div class="text-center mb-4"><h3>Reset Password</h3></div>
+    <div class="mb-3">
+      <label class="form-label">Email terdaftar</label>
+      <input type="email" class="form-control bg-dark text-light" id="forgotEmail">
+    </div>
+    <button class="btn w-100" style="background:#7c3aed;color:white" onclick="handleForgot()">Reset</button>
+    <p class="text-center mt-3"><a href="#" class="text-decoration-none" onclick="showPage('login-page')">Kembali ke Login</a></p>
+  </div>
+</div>
+
+<!-- ========== MAIN APP ========== -->
+<div id="app-page" class="page">
+  <!-- Top Bar -->
+  <div class="d-flex justify-content-between align-items-center p-3 border-bottom border-secondary">
+    <div class="d-flex align-items-center gap-2">
+      <span style="font-size:28px">🧠</span>
+      <span class="fw-bold fs-5">MindCraft</span>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <span class="badge bg-warning bg-opacity-25 text-warning px-3 py-2" id="streakBadge">🔥 0</span>
+      <div class="rounded-circle bg-gradient d-flex align-items-center justify-content-center" style="width:40px;height:40px;background:linear-gradient(135deg,#7c3aed,#06b6d4);cursor:pointer" onclick="switchSection('profile')">
+        <span id="userInitial">U</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dynamic Sections -->
+  <div id="section-home" class="section active p-3">
+    <h4 class="mb-3">Halo, <span id="greetingName" class="text-gradient">Pelajar</span>! 👋</h4>
+    <div class="row g-3 mb-3">
+      <div class="col-6"><div class="glass-card p-3 text-center"><h2 id="statMateri">0</h2><small>📚 Materi</small></div></div>
+      <div class="col-6"><div class="glass-card p-3 text-center"><h2 id="statQuiz">0</h2><small>✅ Kuis</small></div></div>
+      <div class="col-6"><div class="glass-card p-3 text-center"><h2 id="statScore">0%</h2><small>🎯 Rata² Skor</small></div></div>
+      <div class="col-6"><div class="glass-card p-3 text-center"><h2 id="statStreak">0</h2><small>🔥 Streak</small></div></div>
+    </div>
+    <div class="glass-card p-3 mb-3" id="dailyBanner" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
+      <h5>🎯 Daily Challenge</h5>
+      <p id="dailyText">Selesaikan kuis hari ini!</p>
+      <button class="btn btn-light btn-sm" onclick="startDailyQuiz()">Mulai</button>
+    </div>
+    <h5>⚡ Aksi Cepat</h5>
+    <div class="row g-2 mb-3">
+      <div class="col-6"><div class="glass-card p-3" onclick="switchSection('upload')"><i class="bi bi-cloud-upload fs-3"></i><br>Upload Materi</div></div>
+      <div class="col-6"><div class="glass-card p-3" onclick="switchSection('quiz')"><i class="bi bi-puzzle fs-3"></i><br>Buat Kuis</div></div>
+    </div>
+    <h5>📚 Materi Terakhir</h5>
+    <div id="homeMaterials"></div>
+  </div>
+
+  <div id="section-upload" class="section p-3">
+    <h4>📤 Tambah Materi</h4>
+    <div class="btn-group w-100 mb-3" role="group">
+      <button class="btn btn-outline-light active" onclick="setUploadMode('file')">📄 File</button>
+      <button class="btn btn-outline-light" onclick="setUploadMode('text')">✏️ Teks</button>
+      <button class="btn btn-outline-light" onclick="setUploadMode('voice')">🎙️ Rekam</button>
+    </div>
+    <div id="uploadFileMode">
+      <div class="glass-card p-4 text-center" style="border:2px dashed #7c3aed;cursor:pointer" onclick="document.getElementById('fileInput').click()">
+        <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md" style="display:none">
+        <i class="bi bi-file-earmark-arrow-up fs-1"></i>
+        <p>Klik atau drop file (PDF, Word, TXT)</p>
+      </div>
+      <div id="fileChip" class="mt-2"></div>
+    </div>
+    <div id="uploadTextMode" style="display:none">
+      <textarea class="form-control bg-dark text-light" id="textMaterial" rows="6" placeholder="Tempel atau ketik materi di sini..."></textarea>
+    </div>
+    <div id="uploadVoiceMode" style="display:none">
+      <div class="glass-card p-4 text-center">
+        <button class="rec-btn" id="recBtn" onclick="toggleRecording()">🎙️</button>
+        <p class="mt-2" id="recStatus">Tekan untuk merekam</p>
+        <div id="transcriptPreview" class="mt-2 text-secondary"></div>
+      </div>
+    </div>
+    <div class="mt-3">
+      <input type="text" class="form-control bg-dark text-light" id="materialName" placeholder="Nama materi">
+      <button class="btn w-100 mt-2" style="background:#7c3aed;color:white" onclick="saveMaterial()">Simpan Materi</button>
+    </div>
+    <h5 class="mt-4">📋 Materi Tersimpan</h5>
+    <div id="savedMaterials"></div>
+  </div>
+
+  <div id="section-quiz" class="section p-3">
+    <div id="quizSetup">
+      <h4>🎯 Buat Kuis</h4>
+      <select class="form-select bg-dark text-light mb-3" id="quizMaterialSelect"></select>
+      <label class="form-label">Tipe Kuis</label>
+      <div class="row g-2 mb-3">
+        <div class="col-4"><div class="glass-card p-2 text-center quiz-type active" data-type="pilgan">Pilihan Ganda</div></div>
+        <div class="col-4"><div class="glass-card p-2 text-center quiz-type" data-type="essay">Esai</div></div>
+        <div class="col-4"><div class="glass-card p-2 text-center quiz-type" data-type="benar_salah">Benar/Salah</div></div>
+        <div class="col-4"><div class="glass-card p-2 text-center quiz-type" data-type="studi_kasus">Studi Kasus</div></div>
+        <div class="col-4"><div class="glass-card p-2 text-center quiz-type" data-type="teka_teki">Teka-Teki</div></div>
+        <div class="col-4"><div class="glass-card p-2 text-center quiz-type" data-type="ujian">Ujian</div></div>
+      </div>
+      <div class="row g-2 mb-3">
+        <div class="col-6"><label>Jumlah Soal</label><select class="form-select bg-dark text-light" id="quizCount"><option>5</option><option>10</option><option>15</option></select></div>
+        <div class="col-6"><label>Timer (detik)</label><select class="form-select bg-dark text-light" id="quizTimer"><option value="0">Tanpa</option><option value="30">30</option><option value="60" selected>60</option></select></div>
+      </div>
+      <button class="btn w-100" style="background:#7c3aed;color:white" onclick="generateQuiz()">Generate Kuis</button>
+    </div>
+    <div id="quizPlay" style="display:none">
+      <div class="d-flex justify-content-between mb-2">
+        <span id="qProgress">Soal 1/10</span>
+        <span id="qTimer" class="text-warning"></span>
+      </div>
+      <div class="progress mb-3 progress-thin"><div class="progress-bar" id="qProgressBar" style="width:0%"></div></div>
+      <div id="questionContainer"></div>
+      <div id="quizControls" class="mt-3"></div>
+    </div>
+    <div id="quizResult" style="display:none">
+      <div class="text-center glass-card p-4">
+        <span id="resultEmoji" style="font-size:4rem">🎉</span>
+        <h1 id="resultScore">85%</h1>
+        <p id="resultLabel">Bagus!</p>
+        <div class="d-flex justify-content-around my-3">
+          <div><h4 id="resCorrect">8</h4><small>Benar</small></div>
+          <div><h4 id="resWrong">2</h4><small>Salah</small></div>
+        </div>
+        <button class="btn btn-primary" onclick="retakeQuiz()">Ulangi</button>
+        <button class="btn btn-outline-light" onclick="goToQuizSetup()">Kuis Baru</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="section-progress" class="section p-3">
+    <h4>📈 Progres Belajar</h4>
+    <div class="glass-card p-3 text-center mb-3">
+      <canvas id="progressRing" width="160" height="160" style="max-width:160px"></canvas>
+      <h2 id="overallPct">0%</h2>
+      <p>Pemahaman Keseluruhan</p>
+    </div>
+    <h5>Per Materi</h5>
+    <div id="topicProgress"></div>
+    <h5 class="mt-3">Riwayat Kuis</h5>
+    <div id="historyList"></div>
+  </div>
+
+  <div id="section-profile" class="section p-3">
+    <div class="glass-card p-4 text-center mb-3">
+      <div class="rounded-circle d-inline-flex align-items-center justify-content-center" style="width:80px;height:80px;background:linear-gradient(135deg,#7c3aed,#06b6d4);font-size:2rem" id="profileAvatar">U</div>
+      <h4 class="mt-2" id="profileName">Nama</h4>
+      <p id="profileEmail">email@example.com</p>
+    </div>
+    <div class="list-group">
+      <button class="list-group-item list-group-item-action bg-dark text-light" onclick="openEditProfile()"><i class="bi bi-pencil"></i> Edit Profil</button>
+      <button class="list-group-item list-group-item-action bg-dark text-light" onclick="openChangePassword()"><i class="bi bi-key"></i> Ganti Password</button>
+      <button class="list-group-item list-group-item-action bg-dark text-light" onclick="handleLogout()"><i class="bi bi-box-arrow-right"></i> Keluar</button>
+    </div>
+  </div>
+
+  <!-- Bottom Nav -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-section="home"><i class="bi bi-house"></i><span>Beranda</span></button>
+    <button class="nav-item" data-section="upload"><i class="bi bi-cloud-upload"></i><span>Materi</span></button>
+    <button class="nav-item" data-section="quiz"><i class="bi bi-puzzle"></i><span>Kuis</span></button>
+    <button class="nav-item" data-section="progress"><i class="bi bi-bar-chart"></i><span>Progres</span></button>
+    <button class="nav-item" data-section="profile"><i class="bi bi-person"></i><span>Profil</span></button>
+  </nav>
+</div>
+
+<script>
+  // ================== GLOBAL STATE ==================
+  const DB = {
+    users: JSON.parse(localStorage.getItem('mc_users') || '[]'),
+    session: JSON.parse(localStorage.getItem('mc_session') || 'null'),
+    materials: JSON.parse(localStorage.getItem('mc_materials') || '[]'),
+    history: JSON.parse(localStorage.getItem('mc_history') || '[]'),
+    stats: JSON.parse(localStorage.getItem('mc_stats') || '{"quizDone":0,"totalScore":0,"streak":0,"lastQuizDate":null}')
+  };
+  let currentUser = DB.session ? DB.users.find(u => u.id === DB.session.id) : null;
+  let currentQuiz = { questions: [], answers: [], index: 0, timer: null, timeLeft: 0, materialId: null, type: 'pilgan' };
+  let uploadMode = 'file', mediaRecorder = null, audioChunks = [], recognition = null, currentFileContent = '';
+
+  // Helpers
+  function saveDB() {
+    localStorage.setItem('mc_users', JSON.stringify(DB.users));
+    localStorage.setItem('mc_materials', JSON.stringify(DB.materials));
+    localStorage.setItem('mc_history', JSON.stringify(DB.history));
+    localStorage.setItem('mc_stats', JSON.stringify(DB.stats));
+  }
+  function hash(pw) { return btoa(pw.split('').reverse().join('') + pw.length); }
+  function showToast(msg, type='info') {
+    const toast = document.createElement('div');
+    toast.className = `toast align-items-center text-bg-${type==='success'?'success':type==='error'?'danger':'secondary'} border-0`;
+    toast.innerHTML = `<div class="d-flex"><div class="toast-body">${msg}</div><button class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button></div>`;
+    document.querySelector('.toast-container').appendChild(toast);
+    new bootstrap.Toast(toast).show();
+    setTimeout(() => toast.remove(), 5000);
+  }
+  function showPage(id) { document.querySelectorAll('.page').forEach(p => p.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+  function switchSection(section) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.getElementById(`section-${section}`).classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelector(`[data-section="${section}"]`).classList.add('active');
+    if (section === 'home') updateHomeStats();
+    if (section === 'upload') renderMaterials();
+    if (section === 'quiz') renderQuizSelect();
+    if (section === 'progress') renderProgress();
+    if (section === 'profile') updateProfileUI();
+  }
+  function setUploadMode(mode) {
+    uploadMode = mode;
+    document.querySelectorAll('#uploadFileMode, #uploadTextMode, #uploadVoiceMode').forEach(el => el.style.display = 'none');
+    document.getElementById(`upload${mode.charAt(0).toUpperCase()+mode.slice(1)}Mode`).style.display = 'block';
+  }
+
+  // ================== AUTH ==================
+  function handleRegister() {
+    const name = document.getElementById('regName').value.trim();
+    const email = document.getElementById('regEmail').value.trim();
+    const pw = document.getElementById('regPassword').value;
+    const confirm = document.getElementById('regConfirm').value;
+    if (!name || !email || pw.length < 6 || pw !== confirm) return showToast('Data tidak valid', 'error');
+    if (DB.users.find(u => u.email === email)) return showToast('Email sudah terdaftar', 'error');
+    const newUser = { id: Date.now(), name, email, password: hash(pw), createdAt: new Date() };
+    DB.users.push(newUser);
+    saveDB();
+    showToast('Registrasi berhasil!', 'success');
+    showPage('login-page');
+  }
+  function handleLogin() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const pw = document.getElementById('loginPassword').value;
+    const user = DB.users.find(u => u.email === email && u.password === hash(pw));
+    if (!user) return showToast('Email atau password salah', 'error');
+    currentUser = user;
+    DB.session = { id: user.id, remember: document.getElementById('rememberMe').checked };
+    localStorage.setItem('mc_session', JSON.stringify(DB.session));
+    showPage('app-page');
+    initApp();
+  }
+  function handleLogout() {
+    currentUser = null;
+    DB.session = null;
+    localStorage.removeItem('mc_session');
+    showPage('login-page');
+  }
+  function handleForgot() {
+    const email = document.getElementById('forgotEmail').value.trim();
+    const user = DB.users.find(u => u.email === email);
+    if (!user) return showToast('Email tidak ditemukan', 'error');
+    const newPw = prompt('Masukkan password baru (min 6 karakter):');
+    if (newPw && newPw.length >= 6) {
+      user.password = hash(newPw);
+      saveDB();
+      showToast('Password direset!', 'success');
+      showPage('login-page');
+    }
+  }
+
+  // ================== MATERIAL ==================
+  function renderMaterials() {
+    const userMats = DB.materials.filter(m => m.userId === currentUser.id);
+    const container = document.getElementById('savedMaterials');
+    container.innerHTML = userMats.map(m => `
+      <div class="glass-card p-2 mb-2 d-flex justify-content-between">
+        <span>📄 ${m.name}</span>
+        <button class="btn btn-sm btn-outline-info" onclick="generateQuizFromMaterial(${m.id})">Buat Kuis</button>
+      </div>
+    `).join('') || '<p class="text-secondary">Belum ada materi</p>';
+  }
+  function processFile(file) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    const reader = new FileReader();
+    if (ext === 'txt' || ext === 'md') {
+      reader.onload = e => { currentFileContent = e.target.result; showToast('File teks dibaca', 'success'); };
+      reader.readAsText(file);
+    } else if (ext === 'docx') {
+      reader.onload = e => mammoth.extractRawText({ arrayBuffer: e.target.result }).then(r => { currentFileContent = r.value; showToast('DOCX dibaca', 'success'); });
+      reader.readAsArrayBuffer(file);
+    } else if (ext === 'pdf') {
+      reader.onload = async e => {
+        const pdf = await pdfjsLib.getDocument({ data: e.target.result }).promise;
+        let text = ''; for (let i=1; i<=pdf.numPages; i++) { const page = await pdf.getPage(i); const content = await page.getTextContent(); text += content.items.map(it => it.str).join(' ') + '\n'; }
+        currentFileContent = text; showToast('PDF dibaca', 'success');
+      };
+      reader.readAsArrayBuffer(file);
+    }
+    document.getElementById('fileChip').innerHTML = `<span class="badge bg-success">${file.name}</span>`;
+  }
+  document.getElementById('fileInput').addEventListener('change', e => { if(e.target.files[0]) processFile(e.target.files[0]); });
+  async function toggleRecording() {
+    if (!mediaRecorder) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+          const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+          recognition = new SpeechRecognition();
+          recognition.lang = 'id-ID';
+          recognition.onresult = e => { currentFileContent = e.results[0][0].transcript; document.getElementById('transcriptPreview').textContent = currentFileContent; };
+          recognition.start();
+        } else { currentFileContent = '[Rekaman suara - transkripsi tidak didukung]'; }
+        document.getElementById('recStatus').textContent = 'Rekaman selesai';
+        document.getElementById('recBtn').classList.remove('recording');
+        mediaRecorder = null;
+      };
+      mediaRecorder.start();
+      document.getElementById('recBtn').classList.add('recording');
+      document.getElementById('recStatus').textContent = 'Merekam...';
+    } else {
+      mediaRecorder.stop();
+    }
+  }
+  function saveMaterial() {
+    const name = document.getElementById('materialName').value.trim();
+    let content = '';
+    if (uploadMode === 'file') content = currentFileContent;
+    else if (uploadMode === 'text') content = document.getElementById('textMaterial').value;
+    else content = currentFileContent;
+    if (!name || !content) return showToast('Nama dan isi materi harus diisi', 'error');
+    const newMat = { id: Date.now(), userId: currentUser.id, name, content, createdAt: new Date() };
+    DB.materials.push(newMat);
+    saveDB();
+    showToast('Materi disimpan!', 'success');
+    renderMaterials();
+  }
+
+  // ================== QUIZ ENGINE (Offline AI) ==================
+  const AI = {
+    getSentences(text) { return text.split(/[.!?]\s+/).filter(s => s.length > 20); },
+    getKeywords(text) {
+      const words = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+      const freq = {}; words.forEach(w => { if (!['yang','dan','dari','untuk','dengan'].includes(w)) freq[w] = (freq[w]||0)+1; });
+      return Object.entries(freq).sort((a,b) => b[1]-a[1]).slice(0,15).map(e => e[0]);
+    },
+    generateQuestions(text, count, type) {
+      const sentences = this.getSentences(text);
+      const keywords = this.getKeywords(text);
+      const questions = [];
+      if (type === 'pilgan' || type === 'ujian') {
+        for (let i=0; i<count; i++) {
+          const kw = keywords[i % keywords.length] || 'konsep';
+          const wrongs = keywords.filter(k => k !== kw).slice(0,3);
+          if (wrongs.length < 3) wrongs.push('opsi lain');
+          const opts = [kw, ...wrongs].sort(() => Math.random()-0.5);
+          questions.push({
+            question: `Apa yang dimaksud dengan "${kw}"?`,
+            options: opts,
+            correct: String.fromCharCode(65 + opts.indexOf(kw)),
+            explanation: `${kw} adalah salah satu konsep penting dalam materi.`
+          });
         }
+      } else if (type === 'essay') {
+        keywords.slice(0,count).forEach(kw => questions.push({ question: `Jelaskan tentang "${kw}"!`, keyPoints: [kw] }));
+      } else if (type === 'benar_salah') {
+        sentences.slice(0,count).forEach(s => questions.push({ statement: s, correct: Math.random() > 0.5 }));
+      }
+      return questions;
+    }
+  };
 
-        function saveTasks() {
-            localStorage.setItem('taskflow_tasks', JSON.stringify(tasks));
-        }
+  function renderQuizSelect() {
+    const sel = document.getElementById('quizMaterialSelect');
+    sel.innerHTML = DB.materials.filter(m => m.userId === currentUser.id).map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+    document.querySelectorAll('.quiz-type').forEach(el => el.addEventListener('click', function() {
+      document.querySelectorAll('.quiz-type').forEach(t => t.classList.remove('active'));
+      this.classList.add('active');
+      currentQuiz.type = this.dataset.type;
+    }));
+  }
+  function generateQuizFromMaterial(id) { switchSection('quiz'); document.getElementById('quizMaterialSelect').value = id; generateQuiz(); }
+  async function generateQuiz() {
+    const matId = document.getElementById('quizMaterialSelect').value;
+    if (!matId) return showToast('Pilih materi', 'error');
+    const mat = DB.materials.find(m => m.id == matId);
+    const count = parseInt(document.getElementById('quizCount').value);
+    currentQuiz.timerSetting = parseInt(document.getElementById('quizTimer').value);
+    showLoader('Membuat soal...');
+    await new Promise(r => setTimeout(r, 1500));
+    const questions = AI.generateQuestions(mat.content, count, currentQuiz.type);
+    currentQuiz = { ...currentQuiz, questions, answers: new Array(questions.length).fill(null), index: 0, materialId: matId };
+    hideLoader();
+    startQuiz();
+  }
+  function startQuiz() {
+    document.getElementById('quizSetup').style.display = 'none';
+    document.getElementById('quizPlay').style.display = 'block';
+    renderQuestion();
+  }
+  function renderQuestion() {
+    const q = currentQuiz.questions[currentQuiz.index];
+    const container = document.getElementById('questionContainer');
+    document.getElementById('qProgress').textContent = `Soal ${currentQuiz.index+1}/${currentQuiz.questions.length}`;
+    document.getElementById('qProgressBar').style.width = `${(currentQuiz.index/currentQuiz.questions.length)*100}%`;
+    if (currentQuiz.timerSetting) {
+      currentQuiz.timeLeft = currentQuiz.timerSetting;
+      updateTimer();
+      currentQuiz.timer = setInterval(() => {
+        currentQuiz.timeLeft--;
+        updateTimer();
+        if (currentQuiz.timeLeft <= 0) { clearInterval(currentQuiz.timer); answerQuestion(null); }
+      }, 1000);
+    }
+    let html = `<div class="glass-card p-3"><h5>${q.question || q.statement}</h5>`;
+    if (q.options) {
+      html += `<div class="mt-3">`;
+      q.options.forEach((opt, i) => {
+        html += `<div class="quiz-option" onclick="answerMC(${i})"><span class="fw-bold me-2">${String.fromCharCode(65+i)}.</span> ${opt}</div>`;
+      });
+      html += `</div>`;
+    } else if (currentQuiz.type === 'essay') {
+      html += `<textarea class="form-control bg-dark text-light mt-3" id="essayAnswer" rows="4"></textarea>
+               <button class="btn btn-primary mt-2" onclick="submitEssay()">Submit</button>`;
+    } else if (currentQuiz.type === 'benar_salah') {
+      html += `<div class="mt-3"><button class="btn btn-success me-2" onclick="answerTF(true)">Benar</button>
+               <button class="btn btn-danger" onclick="answerTF(false)">Salah</button></div>`;
+    }
+    html += `<div id="feedbackArea" class="mt-3"></div></div>`;
+    container.innerHTML = html;
+  }
+  function updateTimer() { document.getElementById('qTimer').textContent = `⏱️ ${currentQuiz.timeLeft}s`; }
+  function answerMC(idx) {
+    clearInterval(currentQuiz.timer);
+    const q = currentQuiz.questions[currentQuiz.index];
+    const chosen = String.fromCharCode(65+idx);
+    const correct = chosen === q.correct;
+    currentQuiz.answers[currentQuiz.index] = { answer: chosen, correct };
+    document.querySelectorAll('.quiz-option').forEach((el, i) => {
+      el.style.pointerEvents = 'none';
+      if (String.fromCharCode(65+i) === q.correct) el.classList.add('selected-correct');
+      else if (i === idx && !correct) el.classList.add('selected-wrong');
+    });
+    showFeedback(correct, q.explanation);
+    playSound(correct);
+    showNextButton();
+  }
+  function answerTF(ans) {
+    clearInterval(currentQuiz.timer);
+    const q = currentQuiz.questions[currentQuiz.index];
+    const correct = ans === q.correct;
+    currentQuiz.answers[currentQuiz.index] = { answer: ans, correct };
+    showFeedback(correct, q.explanation || (correct ? 'Benar!' : 'Salah!'));
+    playSound(correct);
+    showNextButton();
+  }
+  function submitEssay() {
+    const ans = document.getElementById('essayAnswer').value.trim();
+    if (!ans) return showToast('Tulis jawaban', 'error');
+    clearInterval(currentQuiz.timer);
+    currentQuiz.answers[currentQuiz.index] = { answer: ans, correct: true, score: 80 };
+    showFeedback(true, 'Jawaban esai dicatat');
+    showNextButton();
+  }
+  function showFeedback(correct, explanation) {
+    const fb = document.getElementById('feedbackArea');
+    fb.innerHTML = `<div class="alert alert-${correct?'success':'danger'}">${explanation || ''}</div>`;
+  }
+  function showNextButton() {
+    document.getElementById('quizControls').innerHTML = `
+      <button class="btn btn-primary w-100" onclick="nextQuestion()">
+        ${currentQuiz.index < currentQuiz.questions.length-1 ? 'Selanjutnya' : 'Selesai'}
+      </button>`;
+  }
+  function nextQuestion() {
+    if (currentQuiz.index < currentQuiz.questions.length-1) {
+      currentQuiz.index++;
+      renderQuestion();
+    } else finishQuiz();
+  }
+  function finishQuiz() {
+    document.getElementById('quizPlay').style.display = 'none';
+    document.getElementById('quizResult').style.display = 'block';
+    const correct = currentQuiz.answers.filter(a => a?.correct).length;
+    const total = currentQuiz.questions.length;
+    const score = Math.round((correct/total)*100);
+    document.getElementById('resultScore').textContent = score+'%';
+    document.getElementById('resCorrect').textContent = correct;
+    document.getElementById('resWrong').textContent = total - correct;
+    if (score >= 80) { document.getElementById('resultEmoji').textContent = '🏆'; document.getElementById('resultLabel').textContent = 'Luar Biasa!'; spawnConfetti(); }
+    // Save history & stats
+    DB.history.push({ userId: currentUser.id, materialId: currentQuiz.materialId, score, correct, total, date: new Date() });
+    const stats = DB.stats; stats.quizDone++; stats.totalScore += score;
+    const today = new Date().toDateString();
+    if (stats.lastQuizDate !== today) { stats.streak = stats.lastQuizDate === new Date(Date.now()-86400000).toDateString() ? stats.streak+1 : 1; stats.lastQuizDate = today; }
+    saveDB();
+  }
+  function retakeQuiz() { currentQuiz.index = 0; currentQuiz.answers = []; document.getElementById('quizResult').style.display = 'none'; startQuiz(); }
+  function goToQuizSetup() { document.getElementById('quizResult').style.display = 'none'; document.getElementById('quizSetup').style.display = 'block'; }
 
-        function setPriority(priority) {
-            currentPriority = priority;
-            document.querySelectorAll('.priority-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-        }
+  // ================== PROGRESS ==================
+  function renderProgress() {
+    const userHist = DB.history.filter(h => h.userId === currentUser.id);
+    const avg = userHist.length ? Math.round(userHist.reduce((a,b)=>a+b.score,0)/userHist.length) : 0;
+    document.getElementById('overallPct').textContent = avg+'%';
+    drawProgressRing(avg);
+    // Topic progress
+    const byMat = {}; userHist.forEach(h => { const m = DB.materials.find(m => m.id === h.materialId); const name = m?.name || 'Materi'; if (!byMat[name]) byMat[name] = []; byMat[name].push(h.score); });
+    document.getElementById('topicProgress').innerHTML = Object.entries(byMat).map(([n, s]) => {
+      const pct = Math.round(s.reduce((a,b)=>a+b,0)/s.length);
+      return `<div class="mb-2"><span>${n}</span><div class="progress"><div class="progress-bar" style="width:${pct}%">${pct}%</div></div></div>`;
+    }).join('');
+    document.getElementById('historyList').innerHTML = userHist.slice(0,10).map(h => `<div class="glass-card p-2 mb-1">${new Date(h.date).toLocaleDateString()} - Skor: ${h.score}% (${h.correct}/${h.total})</div>`).join('');
+  }
+  function drawProgressRing(pct) {
+    const canvas = document.getElementById('progressRing');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0,0,160,160);
+    ctx.beginPath(); ctx.arc(80,80,70,0,2*Math.PI); ctx.strokeStyle = '#2d3748'; ctx.lineWidth=12; ctx.stroke();
+    ctx.beginPath(); ctx.arc(80,80,70,0,(pct/100)*2*Math.PI); ctx.strokeStyle = '#7c3aed'; ctx.lineWidth=12; ctx.stroke();
+  }
 
-        function addTask() {
-            const input = document.getElementById('taskInput');
-            const text = input.value.trim();
+  // ================== HOME & UTILS ==================
+  function updateHomeStats() {
+    const mats = DB.materials.filter(m => m.userId === currentUser.id);
+    const hist = DB.history.filter(h => h.userId === currentUser.id);
+    document.getElementById('statMateri').textContent = mats.length;
+    document.getElementById('statQuiz').textContent = hist.length;
+    document.getElementById('statScore').textContent = hist.length ? Math.round(hist.reduce((a,b)=>a+b.score,0)/hist.length)+'%' : '0%';
+    document.getElementById('statStreak').textContent = DB.stats.streak;
+    document.getElementById('streakBadge').innerHTML = `🔥 ${DB.stats.streak}`;
+    document.getElementById('homeMaterials').innerHTML = mats.slice(0,3).map(m => `<div class="glass-card p-2 mb-2">📄 ${m.name}</div>`).join('');
+  }
+  function updateProfileUI() {
+    document.getElementById('userInitial').textContent = currentUser.name[0].toUpperCase();
+    document.getElementById('greetingName').textContent = currentUser.name.split(' ')[0];
+    document.getElementById('profileAvatar').textContent = currentUser.name[0].toUpperCase();
+    document.getElementById('profileName').textContent = currentUser.name;
+    document.getElementById('profileEmail').textContent = currentUser.email;
+  }
+  function startDailyQuiz() {
+    const mats = DB.materials.filter(m => m.userId === currentUser.id);
+    if (!mats.length) return showToast('Upload materi dulu', 'error');
+    switchSection('quiz');
+    document.getElementById('quizMaterialSelect').value = mats[0].id;
+    generateQuiz();
+  }
+  function showLoader(text) { document.getElementById('loaderText').textContent = text; document.getElementById('globalLoader').classList.add('show'); }
+  function hideLoader() { document.getElementById('globalLoader').classList.remove('show'); }
+  function playSound(correct) {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(); osc.type = 'sine';
+    osc.frequency.value = correct ? 880 : 440;
+    osc.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime+0.15);
+  }
+  function spawnConfetti() {
+    for (let i=0; i<50; i++) {
+      const conf = document.createElement('div'); conf.className = 'position-absolute'; conf.style.left = Math.random()*100+'%';
+      conf.style.top = '-20px'; conf.style.width = '10px'; conf.style.height = '10px'; conf.style.background = ['#7c3aed','#06b6d4','#f59e0b','#10b981'][Math.floor(Math.random()*4)];
+      conf.style.animation = `fall ${Math.random()*2+1}s linear`; document.getElementById('confettiContainer').appendChild(conf);
+      setTimeout(() => conf.remove(), 3000);
+    }
+  }
+  // Style animation
+  const style = document.createElement('style'); style.textContent = `@keyframes fall { to { transform: translateY(100vh) rotate(360deg); opacity:0; } }`; document.head.appendChild(style);
 
-            if (text === '') return;
-
-            const task = {
-                id: Date.now(),
-                text: text,
-                completed: false,
-                priority: currentPriority,
-                createdAt: new Date().toLocaleString('id-ID')
-            };
-
-            tasks.unshift(task);
-            input.value = '';
-            saveTasks();
-            renderTasks();
-        }
-
-        function toggleTask(id) {
-            const task = tasks.find(t => t.id === id);
-            if (task) {
-                task.completed = !task.completed;
-                saveTasks();
-                renderTasks();
-            }
-        }
-
-        function deleteTask(id) {
-            tasks = tasks.filter(t => t.id !== id);
-            saveTasks();
-            renderTasks();
-        }
-
-        function filterTasks(filter) {
-            currentFilter = filter;
-            document.querySelectorAll('.filter-tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            event.target.classList.add('active');
-            renderTasks();
-        }
-
-        function renderTasks() {
-            const container = document.getElementById('tasksList');
-
-            let filteredTasks = tasks;
-
-            if (currentFilter === 'active') {
-                filteredTasks = tasks.filter(t => !t.completed);
-            } else if (currentFilter === 'completed') {
-                filteredTasks = tasks.filter(t => t.completed);
-            } else if (['high', 'medium', 'low'].includes(currentFilter)) {
-                filteredTasks = tasks.filter(t => t.priority === currentFilter);
-            }
-
-            if (filteredTasks.length === 0) {
-                container.innerHTML = `
-          <div class="empty-state">
-            <div class="empty-icon">📋</div>
-            <h3>Tidak ada tugas</h3>
-            <p>Mulai tambahkan tugas baru untuk memulai!</p>
-          </div>
-        `;
-            } else {
-                container.innerHTML = filteredTasks.map(task => `
-          <div class="task-item ${task.priority}">
-            <div class="task-checkbox ${task.completed ? 'checked' : ''}" onclick="toggleTask(${task.id})">
-              ${task.completed ? '✓' : ''}
-            </div>
-            <div class="task-content">
-              <div class="task-text ${task.completed ? 'completed' : ''}">${task.text}</div>
-              <div class="task-meta">
-                <span class="task-time">🕒 ${task.createdAt}</span>
-                <span>📌 ${task.priority === 'high' ? 'Tinggi' : task.priority === 'medium' ? 'Sedang' : 'Rendah'}</span>
-              </div>
-            </div>
-            <div class="task-actions">
-              <button class="btn-icon btn-delete" onclick="deleteTask(${task.id})">🗑️</button>
-            </div>
-          </div>
-        `).join('');
-            }
-
-            updateStats();
-        }
-
-        function updateStats() {
-            const total = tasks.length;
-            const completed = tasks.filter(t => t.completed).length;
-            const progress = total > 0 ? (completed / total) * 100 : 0;
-
-            document.getElementById('totalTasks').textContent = total;
-            document.getElementById('completedTasks').textContent = completed;
-            document.getElementById('progressBar').style.width = progress + '%';
-        }
-
-        loadTasks();
-
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./service-worker.js')
-                    .then(() => console.log('Service Worker registered'))
-                    .catch(err => console.error('Service Worker error:', err));
-            });
-        }
-    </script>
-
+  // Init App
+  function initApp() {
+    updateHomeStats(); updateProfileUI(); renderMaterials(); renderQuizSelect(); renderProgress();
+  }
+  window.onload = () => {
+    if (currentUser) { showPage('app-page'); initApp(); } else showPage('login-page');
+    // Service Worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register("data:application/javascript,self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))))");
+    }
+  };
+  // Navigation listeners
+  document.querySelectorAll('[data-section]').forEach(el => el.addEventListener('click', () => switchSection(el.dataset.section)));
+  // Expose functions
+  window.showPage = showPage; window.switchSection = switchSection; window.setUploadMode = setUploadMode;
+  window.handleLogin = handleLogin; window.handleRegister = handleRegister; window.handleLogout = handleLogout; window.handleForgot = handleForgot;
+  window.saveMaterial = saveMaterial; window.toggleRecording = toggleRecording; window.generateQuiz = generateQuiz;
+  window.answerMC = answerMC; window.answerTF = answerTF; window.submitEssay = submitEssay; window.nextQuestion = nextQuestion;
+  window.retakeQuiz = retakeQuiz; window.goToQuizSetup = goToQuizSetup; window.startDailyQuiz = startDailyQuiz;
+  window.generateQuizFromMaterial = generateQuizFromMaterial;
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
-
 </html>
