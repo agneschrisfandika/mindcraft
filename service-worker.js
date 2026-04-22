@@ -125,3 +125,35 @@ self.addEventListener("notificationclick", event => {
     })
   );
 });
+
+// Background Sync
+self.addEventListener("sync", event => {
+  if (event.tag === "database-sync") {
+    event.waitUntil(syncDatabase());
+  }
+});
+
+async function syncDatabase() {
+  try {
+    // Contoh: kirim data lokal ke server
+    // Ganti bagian ini dengan IndexedDB / data antrian milikmu
+    const response = await fetch("/api/sync", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        message: "Sync dari service worker"
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error("Sync gagal");
+    }
+
+    console.log("Background sync berhasil");
+  } catch (error) {
+    console.error("Background sync error:", error);
+    throw error;
+  }
+}

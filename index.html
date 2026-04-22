@@ -4990,6 +4990,17 @@ window.addEventListener('load', () => {
     });
   }
 </script>
-
+<script>
+if ("serviceWorker" in navigator && "SyncManager" in window) {
+  navigator.serviceWorker.ready.then(async (registration) => {
+    try {
+      await registration.sync.register("database-sync");
+      console.log("Sync didaftarkan");
+    } catch (err) {
+      console.log("Background Sync gagal:", err);
+    }
+  });
+}
+</script>
 </body>
 </html>
