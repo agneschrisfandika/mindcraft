@@ -3,10 +3,8 @@
   "name": "MindCraft",
   "short_name": "MindCraft",
   "description": "Aplikasi untuk mempermudah belajar bagi mahasiswa, pelajar maupun pengajar",
-
   "start_url": "./index.html",
   "scope": "./",
-
   "display": "standalone",
   "display_override": [
     "window-controls-overlay",
@@ -14,22 +12,15 @@
     "minimal-ui",
     "browser"
   ],
-
   "background_color": "#4F46E5",
   "theme_color": "#4F46E5",
-
   "orientation": "portrait",
-
   "lang": "id",
   "dir": "ltr",
-
   "prefer_related_applications": false,
   "related_applications": [],
-
   "iarc_rating_id": "",
-
   "handle_links": "preferred",
-
   "file_handlers": [
     {
       "action": "./index.html",
@@ -41,18 +32,15 @@
       }
     }
   ],
-
   "launch_handler": {
     "client_mode": ["focus-existing", "auto"]
   },
-
   "protocol_handlers": [
     {
       "protocol": "web+mindcraft",
       "url": "./index.html?protocol=%s"
     }
   ],
-
   "share_target": {
     "action": "./index.html",
     "method": "POST",
@@ -63,7 +51,6 @@
       "url": "url"
     }
   },
-
   "widgets": [
     {
       "name": "MindCraft Widget",
@@ -80,17 +67,13 @@
       ]
     }
   ],
-
   "edge_side_panel": {
     "preferred_width": 480
   },
-
   "note_taking": {
     "new_note_url": "./index.html#new-note"
   },
-
   "scope_extensions": [],
-
   "icons": [
     {
       "src": "icons/logo-mindcraft-192.png",
@@ -105,7 +88,6 @@
       "purpose": "any maskable"
     }
   ],
-
   "screenshots": [
     {
       "src": "icons/screenshot1.png",
@@ -120,7 +102,6 @@
       "form_factor": "narrow"
     }
   ],
-
   "shortcuts": [
     {
       "name": "Buka Beranda",
@@ -134,7 +115,6 @@
       ]
     }
   ],
-
   "categories": [
     "productivity",
     "utilities",
