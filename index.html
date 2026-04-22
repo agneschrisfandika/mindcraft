@@ -4566,6 +4566,7 @@ window.addEventListener('load', () => {
       })
       .catch(err => console.error('SW error:', err));
   }
+  
 
   // PWA install prompt
   let deferredPrompt;
@@ -4968,6 +4969,10 @@ window.addEventListener('load', () => {
   });
 })();
 </script>
-
+<script>
+  if (typeof navigator.serviceWorker !== 'undefined') {
+    navigator.serviceWorker.register('sw.js')
+  }
+</script>
 </body>
 </html>
