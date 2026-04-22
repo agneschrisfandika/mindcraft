@@ -4585,5 +4585,389 @@ window.addEventListener('load', () => {
   setTimeout(() => hideStartupSplash(), 650);
 });
 </script>
+
+<script>
+// ===== QUIZ EMERGENCY OVERRIDE =====
+(function () {
+  const safeEl = (id) => document.getElementById(id);
+  const safeText = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const stopTimer = () => { try { clearInterval(timerInterval); } catch (_) {} };
+
+  function showQuizSection() {
+    const setup = safeEl('quizSetupView');
+    const play = safeEl('quizPlayView');
+    const result = safeEl('quizResultView');
+    const review = safeEl('quizReviewView');
+    if (setup) setup.style.display = 'none';
+    if (play) play.style.display = 'block';
+    if (result) result.style.display = 'none';
+    if (review) review.style.display = 'none';
+  }
+
+  function setControls(hasNext) {
+    const controls = safeEl('quizControls');
+    if (!controls) return;
+    controls.innerHTML = `<button class="btn-mc ${hasNext ? 'btn-accent' : 'btn-primary-mc'}" onclick="${hasNext ? 'nextQuestion()' : 'finishQuiz()'}">${hasNext ? '<i class="bi bi-arrow-right"></i> Soal Berikutnya' : '<i class="bi bi-flag-fill"></i> Selesai'}</button>`;
+  }
+
+  function buildFallbackQuestions(text, count, type) {
+    const terms = (window.OfflineAI?.getKeyTerms ? OfflineAI.getKeyTerms(text) : [])
+      .filter(Boolean)
+      .slice(0, 10);
+    const topics = terms.length ? terms : ['konsep utama', 'pembahasan', 'materi', 'topik'];
+    const sentences = (window.OfflineAI?.getSentences ? OfflineAI.getSentences(text) : [])
+      .filter(Boolean);
+
+    const pick = (i) => topics[i % topics.length] || `topik ${i + 1}`;
+    const questions = [];
+    for (let i = 0; i < count; i++) {
+      const topic = pick(i);
+      const sentence = sentences[i % Math.max(sentences.length, 1)] || `Materi menjelaskan ${topic}.`;
+      if (type === 'essay') {
+        questions.push({
+          type: 'essay',
+          question: `Jelaskan hubungan ${topic} dengan materi yang dipelajari.`,
+          keyPoints: [topic, pick(i + 1), pick(i + 2)],
+          modelAnswer: sentence,
+          explanation: `Fokus pada ${topic}.`
+        });
+      } else if (type === 'benar_salah') {
+        questions.push({
+          type: 'benar_salah',
+          statement: `${topic} merupakan bagian penting dari materi ini.`,
+          correct: true,
+          explanation: sentence
+        });
+      } else if (type === 'teka_teki') {
+        questions.push({
+          type: 'teka_teki',
+          sentence: sentence.replace(new RegExp(`\\b${topic}\\b`, 'i'), '_____'),
+          blank: topic,
+          hint: `Terkait ${topic}`,
+          explanation: sentence
+        });
+      } else if (type === 'studi_kasus') {
+        questions.push({
+          type: 'studi_kasus',
+          scenario: `Seorang pelajar menghadapi situasi yang berkaitan dengan ${topic}.`,
+          question: 'Konsep apa yang paling tepat digunakan?',
+          options: [topic, pick(i + 1), pick(i + 2), pick(i + 3)],
+          correct: 'A',
+          explanation: `Jawaban mengarah ke ${topic}.`
+        });
+      } else if (type === 'ujian') {
+        if (i % 2 === 0) {
+          questions.push({
+            type: 'mc',
+            question: `Topik mana yang paling mewakili materi ini?`,
+            options: [topic, pick(i + 1), pick(i + 2), pick(i + 3)],
+            correct: 'A',
+            explanation: `Jawaban paling tepat adalah ${topic}.`
+          });
+        } else {
+          questions.push({
+            type: 'essay',
+            question: `Uraikan inti dari ${topic} berdasarkan materi.`,
+            keyPoints: [topic, pick(i + 1)],
+            modelAnswer: sentence,
+            explanation: sentence
+          });
+        }
+      } else {
+        questions.push({
+          type: 'mc',
+          question: `Topik mana yang paling mewakili materi ini?`,
+          options: [topic, pick(i + 1), pick(i + 2), pick(i + 3)],
+          correct: 'A',
+          explanation: `Jawaban paling tepat adalah ${topic}.`
+        });
+      }
+    }
+    return questions;
+  }
+
+  function renderQuestionSafe() {
+    const q = currentQuestions?.[currentQIndex];
+    const area = safeEl('questionArea');
+    const controls = safeEl('quizControls');
+    if (!q || !area) return;
+
+    const effectiveType = (currentQuizType === 'ujian')
+      ? (q.type === 'essay' ? 'essay' : 'pilgan')
+      : currentQuizType;
+
+    const title = q.question || q.statement || q.sentence || '';
+    const labels = ['A', 'B', 'C', 'D', 'E'];
+    let html = '';
+
+    html += `<div class="question-card">`;
+    html += `<div class="q-header"><span class="q-badge ${effectiveType === 'essay' ? 'q-badge-essay' : effectiveType === 'benar_salah' ? 'q-badge-tf' : effectiveType === 'studi_kasus' ? 'q-badge-case' : 'q-badge-mc'}">Soal ${currentQIndex + 1}</span>`;
+    if (safeEl('qTimerDisplay')) html += `<span class="q-timer" id="qTimerDisplay"></span>`;
+    html += `</div>`;
+
+    if (effectiveType === 'studi_kasus' && q.scenario) {
+      html += `<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:1rem;margin-bottom:1rem;font-size:0.875rem;color:var(--text-muted)"><strong>📖 Skenario:</strong><br>${escapeHtml(q.scenario)}</div>`;
+    }
+
+    html += `<div class="q-text">${escapeHtml(title)}</div>`;
+
+    if (effectiveType === 'pilgan' && Array.isArray(q.options)) {
+      html += `<div class="options-list">`;
+      q.options.slice(0, 5).forEach((opt, i) => {
+        html += `<button class="option-btn" onclick="answerMC(${i})" data-idx="${i}"><span class="option-label">${labels[i]}</span><span>${escapeHtml(opt)}</span></button>`;
+      });
+      html += `</div>`;
+    } else if (effectiveType === 'benar_salah') {
+      html += `<div class="options-list"><button class="option-btn" onclick="answerTF(true)" data-val="true"><span class="option-label">✓</span><span>Benar</span></button><button class="option-btn" onclick="answerTF(false)" data-val="false"><span class="option-label">✗</span><span>Salah</span></button></div>`;
+    } else if (effectiveType === 'teka_teki') {
+      html += `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">💡 Petunjuk: ${escapeHtml(q.hint || '')}</div>`;
+      html += `<div style="display:flex;gap:0.75rem;align-items:center"><input type="text" class="form-control" id="ttkInput" placeholder="Isi jawabannya..." style="flex:1" onkeypress="if(event.key==='Enter')submitTTK()"><button class="btn-mc btn-primary-mc btn-sm btn-w-auto" onclick="submitTTK()">Jawab</button></div>`;
+    } else if (effectiveType === 'essay') {
+      html += `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem">💡 Poin yang perlu dibahas: ${escapeHtml((q.keyPoints || []).join(', '))}</div>`;
+      html += `<div class="essay-input-wrap"><textarea class="textarea-mc" id="essayInput" placeholder="Tulis jawabanmu di sini..."></textarea></div><div style="margin-top:0.75rem"><button class="btn-mc btn-primary-mc" onclick="submitEssay()"><i class="bi bi-check-lg"></i> Submit Jawaban</button></div>`;
+    }
+
+    html += `<div class="answer-feedback" id="answerFeedback"></div>`;
+    html += `</div>`;
+
+    area.innerHTML = html;
+    if (controls) controls.innerHTML = '';
+
+    stopTimer();
+    if (quizTimerSetting > 0) {
+      remainingTime = quizTimerSetting;
+      updateTimerDisplay();
+      timerInterval = setInterval(() => {
+        remainingTime--;
+        updateTimerDisplay();
+        if (remainingTime <= 0) {
+          stopTimer();
+          autoNextQuestion();
+        }
+      }, 1000);
+    } else if (safeEl('qTimerDisplay')) {
+      safeEl('qTimerDisplay').textContent = '';
+    }
+  }
+
+  window.generateQuizFromContent = async function (mat, count, difficulty, type) {
+    try {
+      const raw = window.collectSourceText ? collectSourceText(mat) : '';
+      const fallback = window.normalizeMaterialText ? normalizeMaterialText((mat?.content || mat?.summary || '') + '\n' + (Array.isArray(mat?.topics) ? mat.topics.join(' ') : '')) : '';
+      const sourceText = safeText(raw || fallback || mat?.rawContent || mat?.content || mat?.summary || '');
+
+      if (!sourceText || sourceText.split(/\s+/).length < 12) {
+        showToast('Materi terlalu pendek. Pakai teks yang lebih lengkap atau rekaman suara.', 'error');
+        return;
+      }
+
+      if (typeof showQuizLoading === 'function') showQuizLoading(count, type);
+      await new Promise(r => setTimeout(r, 600));
+
+      let questions = [];
+      try {
+        if (window.OfflineAI?.generate) {
+          questions = OfflineAI.generate(sourceText, count, difficulty, type) || [];
+        }
+      } catch (e) {
+        console.warn('OfflineAI.generate error:', e);
+      }
+
+      if (!Array.isArray(questions) || questions.length === 0) {
+        questions = buildFallbackQuestions(sourceText, count, type);
+      }
+
+      if (typeof ensureQuizCount === 'function') {
+        try { questions = ensureQuizCount(questions, sourceText, count, type, difficulty); } catch (_) {}
+      }
+
+      currentQuestions = (Array.isArray(questions) ? questions : []).filter(Boolean).slice(0, count);
+      if (!currentQuestions.length) {
+        showToast('Kuis belum berhasil dibuat. Coba materi yang lebih lengkap.', 'error');
+        return;
+      }
+
+      currentQIndex = 0;
+      quizAnswers = Array(currentQuestions.length).fill(null);
+      quizStartTime = Date.now();
+      showQuizSection();
+
+      if (safeEl('quizTypeChip')) {
+        const typeNames = { pilgan:'Pilihan Ganda', essay:'Esai', benar_salah:'Benar/Salah', studi_kasus:'Studi Kasus', teka_teki:'Teka-Teki', ujian:'Ujian' };
+        safeEl('quizTypeChip').textContent = typeNames[type] || 'Kuis';
+      }
+      if (safeEl('qTotalNum')) safeEl('qTotalNum').textContent = String(currentQuestions.length);
+
+      if (typeof _qglTimers !== 'undefined') {
+        _qglTimers.forEach(t => clearTimeout(t));
+        _qglTimers = [];
+      }
+      const overlay = safeEl('quizGenLoading');
+      if (overlay) overlay.classList.remove('show');
+
+      requestAnimationFrame(() => {
+        try { renderQuestionSafe(); } catch (err) { console.error(err); }
+      });
+    } catch (err) {
+      console.error('generateQuizFromContent override failed:', err);
+      const overlay = safeEl('quizGenLoading');
+      if (overlay) overlay.classList.remove('show');
+      showToast('Kuis gagal dibuat. Coba lagi dengan teks yang lebih jelas.', 'error');
+    }
+  };
+
+  window.generateQuiz = async function () {
+    const matId = parseInt(safeEl('quizMaterialSelect')?.value || '0', 10);
+    const count = parseInt(safeEl('quizCount')?.value || '10', 10);
+    const difficulty = safeEl('quizDifficulty')?.value || 'sedang';
+    quizTimerSetting = parseInt(safeEl('quizTimer')?.value || '0', 10);
+    if (!matId) { showToast('Pilih materi terlebih dahulu', 'error'); return; }
+    const mat = (getMaterials?.() || []).find(m => m.id === matId);
+    if (!mat) { showToast('Materi tidak ditemukan', 'error'); return; }
+    currentMaterialId = matId;
+    await window.generateQuizFromContent(mat, count, difficulty, currentQuizType || 'pilgan');
+  };
+
+  window.startQuiz = function () {
+    if (!Array.isArray(currentQuestions) || !currentQuestions.length) {
+      showToast('Soal kuis belum berhasil dibuat. Coba lagi.', 'error');
+      goToQuizSetup();
+      return;
+    }
+    currentQIndex = 0;
+    quizAnswers = Array(currentQuestions.length).fill(null);
+    quizStartTime = Date.now();
+    showQuizSection();
+    if (safeEl('qTotalNum')) safeEl('qTotalNum').textContent = String(currentQuestions.length);
+    renderQuestionSafe();
+  };
+
+  window.renderQuestion = renderQuestionSafe;
+
+  window.answerMC = function (optionIdx) {
+    if (!Array.isArray(currentQuestions) || quizAnswers[currentQIndex] !== null) return;
+    stopTimer();
+    const q = currentQuestions[currentQIndex];
+    const labels = ['A','B','C','D','E'];
+    const chosen = labels[optionIdx];
+    const correct = chosen === q.correct;
+    quizAnswers[currentQIndex] = { answer: chosen, correct };
+    document.querySelectorAll('.option-btn').forEach((btn, i) => {
+      btn.disabled = true;
+      if (labels[i] === q.correct) btn.classList.add('correct');
+      else if (i === optionIdx && !correct) btn.classList.add('wrong');
+    });
+    showFeedback(correct, correct ? '🎉 Benar!' : '❌ Salah!', q.explanation || '');
+    if (typeof playAnswerAnim === 'function') playAnswerAnim(correct);
+    setControls(currentQIndex < currentQuestions.length - 1);
+  };
+
+  window.answerTF = function (answer) {
+    if (!Array.isArray(currentQuestions) || quizAnswers[currentQIndex] !== null) return;
+    stopTimer();
+    const q = currentQuestions[currentQIndex];
+    const correct = answer === q.correct;
+    quizAnswers[currentQIndex] = { answer, correct };
+    document.querySelectorAll('.option-btn').forEach(btn => {
+      btn.disabled = true;
+      const val = btn.dataset.val === 'true';
+      if (val === q.correct) btn.classList.add('correct');
+      else if (val === answer && !correct) btn.classList.add('wrong');
+    });
+    showFeedback(correct, correct ? '🎉 Benar!' : '❌ Salah!', q.explanation || '');
+    if (typeof playAnswerAnim === 'function') playAnswerAnim(correct);
+    setControls(currentQIndex < currentQuestions.length - 1);
+  };
+
+  window.submitTTK = function () {
+    if (!Array.isArray(currentQuestions) || quizAnswers[currentQIndex] !== null) return;
+    stopTimer();
+    const q = currentQuestions[currentQIndex];
+    const input = safeEl('ttkInput');
+    const answer = safeText(input?.value || '');
+    const correct = safeText(answer).toLowerCase() === safeText(q.blank || q.correct || '').toLowerCase();
+    quizAnswers[currentQIndex] = { answer, correct };
+    if (input) input.disabled = true;
+    showFeedback(correct, correct ? '🎉 Benar!' : '❌ Salah!', q.explanation || q.hint || '');
+    setControls(currentQIndex < currentQuestions.length - 1);
+  };
+
+  window.submitEssay = function () {
+    if (!Array.isArray(currentQuestions) || quizAnswers[currentQIndex] !== null) return;
+    stopTimer();
+    const q = currentQuestions[currentQIndex];
+    const input = safeEl('essayInput');
+    const answer = safeText(input?.value || '');
+    const grading = window.OfflineAI?.gradeEssay ? OfflineAI.gradeEssay(q.question || '', q.modelAnswer || q.explanation || '', answer) : { score: answer.length > 40 ? 70 : 45, feedback: 'Jawaban disimpan.', correct: answer.length > 40 };
+    quizAnswers[currentQIndex] = { answer, correct: grading.correct, score: grading.score };
+    if (input) input.disabled = true;
+    showFeedback(grading.correct, `Nilai: ${grading.score}`, grading.feedback || q.explanation || '');
+    setControls(currentQIndex < currentQuestions.length - 1);
+  };
+
+  window.nextQuestion = function () {
+    stopTimer();
+    currentQIndex++;
+    if (currentQIndex < currentQuestions.length) renderQuestionSafe();
+    else finishQuiz();
+  };
+
+  window.finishQuiz = function () {
+    stopTimer();
+    const elapsed = Math.round((Date.now() - (quizStartTime || Date.now())) / 1000);
+    const correct = (quizAnswers || []).filter(a => a?.correct).length;
+    const total = currentQuestions?.length || 0;
+    const score = total ? Math.round((correct / total) * 100) : 0;
+
+    const hist = typeof getHistory === 'function' ? getHistory() : [];
+    const mat = typeof getMaterials === 'function' ? getMaterials().find(m => m.id === currentMaterialId) : null;
+    hist.unshift({ id: Date.now(), type: currentQuizType, materialId: currentMaterialId, materialName: mat?.name || 'Materi', score, correct, total, elapsed, date: Date.now() });
+    if (typeof saveHistory === 'function') saveHistory(hist);
+    if (typeof showResultView === 'function') showResultView(score, correct, total, elapsed);
+    else {
+      if (safeEl('quizPlayView')) safeEl('quizPlayView').style.display = 'none';
+      if (safeEl('quizResultView')) safeEl('quizResultView').style.display = 'block';
+    }
+  };
+
+  window.exitQuiz = function () { stopTimer(); goToQuizSetup(); };
+  window.goToQuizSetup = function () {
+    if (safeEl('quizSetupView')) safeEl('quizSetupView').style.display = 'block';
+    if (safeEl('quizPlayView')) safeEl('quizPlayView').style.display = 'none';
+    if (safeEl('quizResultView')) safeEl('quizResultView').style.display = 'none';
+    if (safeEl('quizReviewView')) safeEl('quizReviewView').style.display = 'none';
+  };
+
+  window.reviewQuiz = function () {
+    if (safeEl('quizResultView')) safeEl('quizResultView').style.display = 'none';
+    if (safeEl('quizReviewView')) safeEl('quizReviewView').style.display = 'block';
+    if (typeof renderReview === 'function') renderReview();
+  };
+
+  window.retakeQuiz = function () {
+    currentQIndex = 0;
+    quizAnswers = Array.isArray(currentQuestions) ? Array(currentQuestions.length).fill(null) : [];
+    quizStartTime = Date.now();
+    if (safeEl('quizResultView')) safeEl('quizResultView').style.display = 'none';
+    if (safeEl('quizPlayView')) safeEl('quizPlayView').style.display = 'block';
+    renderQuestionSafe();
+  };
+
+  window.startDailyQuiz = function () {
+    const mats = typeof getMaterials === 'function' ? getMaterials() : [];
+    if (!mats.length) { switchSection('upload'); showToast('Upload materi dulu untuk daily quiz!', 'warning'); return; }
+    currentMaterialId = mats[0].id;
+    currentQuizType = 'pilgan';
+    switchSection('quiz');
+    setTimeout(() => window.generateQuizFromContent(mats[0], 5, 'sedang', 'pilgan'), 150);
+  };
+
+  window.addEventListener('offline', () => {
+    const overlay = safeEl('quizGenLoading');
+    if (overlay) overlay.classList.remove('show');
+  });
+})();
+</script>
+
 </body>
 </html>
