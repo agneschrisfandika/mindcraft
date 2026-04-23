@@ -5002,5 +5002,433 @@ if ("serviceWorker" in navigator && "SyncManager" in window) {
   });
 }
 </script>
+
+<script>
+(function () {
+  if (!window.OfflineAI) return;
+
+  const QUIZ_STOPWORDS = new Set([
+    'yang','dan','atau','dari','untuk','dengan','dalam','pada','ini','itu','adalah','juga','sudah','akan','dapat','bisa',
+    'para','setiap','semua','tersebut','antara','melalui','secara','sebuah','suatu','sebagai','materi','pembelajaran',
+    'tentang','berikut','yaitu','setelah','sebelum','kemudian','selain','lebih','sangat','hanya','masih','telah','harus',
+    'bagi','kepada','bahwa','ketika','apabila','jika','maka','agar','supaya','hingga','sampai','dimana','sehingga',
+    'walaupun','meskipun','bahkan','selalu','sering','pernah','cukup','terlalu','paling','hampir','sedang','lagi','belum',
+    'akan','perlu','boleh','bukan','sejak','sesuai','topik','konsep','pembahasan','ringkasan','umum','utama','inti',
+    'bagian','hal','cara','contoh','fungsi','peran','hubungan','materi'
+  ]);
+
+  const safeText = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const unique = (arr) => [...new Set((arr || []).map(safeText).filter(Boolean))];
+
+  function localSentences(text) {
+    const raw = safeText(text)
+      .replace(/\r\n?/g, '\n')
+      .split(/(?<=[.!?])\s+(?=[A-ZA-ZÀ-ÿ0-9])|(?<=[.!?])\s*\n+\s*|\n+/g)
+      .map(s => safeText(s))
+      .filter(s => s.length >= 18);
+    return raw.length ? raw : (safeText(text) ? [safeText(text)] : []);
+  }
+
+  function cleanWord(word) {
+    return safeText(word).toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, '');
+  }
+
+  function containsAny(text, arr) {
+    const low = String(text || '').toLowerCase();
+    return arr.some(t => low.includes(String(t || '').toLowerCase()));
+  }
+
+  function extractPhraseCandidates(text) {
+    const t = String(text || '');
+    const lines = t.split('\n').map(safeText).filter(Boolean);
+
+    const definitional = [];
+    for (const m of t.matchAll(/(?:^|[\n•*\-\d.)\s])([A-Za-zÀ-ÿ][^:\n]{2,70}?)\s+(?:adalah|merupakan|yaitu|ialah|disebut(?:\s+juga)?|bertujuan\s+untuk|berfungsi\s+untuk|berkaitan\s+dengan)\s+([^.\n]{3,120}?)(?=[,.;\n]|$)/gi)) {
+      definitional.push(m[1], m[2]);
+    }
+
+    const headingLike = lines.filter(l =>
+      l.length >= 4 &&
+      l.length <= 80 &&
+      /^[A-Z0-9][^.!?]*$/.test(l) &&
+      !/^(catatan|tujuan|kesimpulan|ringkasan|materi|topik)$/i.test(l)
+    );
+
+    const phraseMatches = [...t.matchAll(/\b([A-Za-zÀ-ÿ][\w-]*(?:\s+[A-Za-zÀ-ÿ][\w-]*){1,4})\b/g)]
+      .map(m => safeText(m[1]))
+      .filter(p => p.split(/\s+/).length >= 2 && p.length <= 60);
+
+    const words = (t.toLowerCase().match(/\b[a-zA-ZÀ-ÿ]{4,}\b/g) || [])
+      .map(cleanWord)
+      .filter(w => w && !QUIZ_STOPWORDS.has(w));
+
+    const freq = {};
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      freq[w] = (freq[w] || 0) + 1;
+
+      const next = words[i + 1];
+      if (next && next !== w && !QUIZ_STOPWORDS.has(next)) {
+        const bigram = `${w} ${next}`;
+        freq[bigram] = (freq[bigram] || 0) + 0.75;
+      }
+    }
+
+    const scored = Object.entries(freq)
+      .filter(([term]) => term && !QUIZ_STOPWORDS.has(term) && term.length > 2)
+      .map(([term, score]) => {
+        let bonus = score;
+        if (term.includes(' ')) bonus += 2;
+        if (containsAny(t, [term])) bonus += 1.5;
+        return [term, bonus];
+      })
+      .sort((a, b) => b[1] - a[1])
+      .map(([term]) => term);
+
+    return unique([...headingLike, ...definitional, ...phraseMatches, ...scored])
+      .filter(term => {
+        const low = term.toLowerCase();
+        if (low.length < 3) return false;
+        if (QUIZ_STOPWORDS.has(low)) return false;
+        if (/^(topik|konsep|materi|pembahasan|umum|utama|inti)$/i.test(low)) return false;
+        return true;
+      });
+  }
+
+  function rankTerms(text) {
+    const t = String(text || '');
+    const candidates = extractPhraseCandidates(t);
+    if (!candidates.length) return [];
+
+    const low = t.toLowerCase();
+    return candidates
+      .map(term => {
+        const tl = term.toLowerCase();
+        let score = 0;
+        const occurrences = low.split(tl).length - 1;
+        score += occurrences * 3;
+        if (term.includes(' ')) score += 2;
+        if (/^[A-Z]/.test(term)) score += 1;
+        if (t.includes(term)) score += 0.5;
+        if (/^[-•\d]/.test(term)) score += 0.25;
+        return { term, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .map(x => x.term);
+  }
+
+  function pickDistractors(pool, correct, count = 3) {
+    const out = [];
+    for (const item of pool) {
+      const clean = safeText(item);
+      if (!clean) continue;
+      if (clean.toLowerCase() === correct.toLowerCase()) continue;
+      if (out.some(x => x.toLowerCase() === clean.toLowerCase())) continue;
+      out.push(clean);
+      if (out.length >= count) break;
+    }
+    while (out.length < count) out.push(`Pilihan ${out.length + 1}`);
+    return out;
+  }
+
+  function shuffle(array) {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  function makeMCFromSentence(sentence, focus, pool) {
+    const escaped = focus.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const blanked = safeText(sentence).replace(new RegExp(`\\b${escaped}\\b`, 'i'), '____');
+    const distractors = pickDistractors(pool.filter(t => t !== focus), focus, 3);
+    const options = shuffle([focus, ...distractors].slice(0, 4));
+    return {
+      question: `Lengkapi bagian yang kosong sesuai materi: "${blanked}"`,
+      options,
+      correct: ['A', 'B', 'C', 'D'][options.findIndex(o => o.toLowerCase() === focus.toLowerCase())] || 'A',
+      explanation: `Bagian yang paling sesuai adalah "${focus}".`
+    };
+  }
+
+  function chooseRelevantSentence(text, term) {
+    const sents = localSentences(text);
+    const target = String(term || '').toLowerCase();
+    if (!sents.length) return '';
+    const found = sents.find(s => s.toLowerCase().includes(target));
+    return found || sents[0];
+  }
+
+  function buildContentQuestions(text, count, type, difficulty) {
+    const clean = safeText(text);
+    const sentences = localSentences(clean);
+    const terms = rankTerms(clean).slice(0, 24);
+
+    if (!clean) return [];
+
+    const questions = [];
+
+    if (type === 'pilgan') {
+      for (const term of terms) {
+        if (questions.length >= count) break;
+        const sentence = chooseRelevantSentence(clean, term);
+        if (!sentence) continue;
+
+        if (sentence.toLowerCase().includes(term.toLowerCase())) {
+          questions.push(makeMCFromSentence(sentence, term, terms));
+        } else {
+          const distractors = pickDistractors(terms.filter(t => t !== term), term, 3);
+          const options = shuffle([term, ...distractors].slice(0, 4));
+          questions.push({
+            question: `Menurut materi, istilah mana yang paling tepat mewakili poin berikut: "${sentence.slice(0, 130)}${sentence.length > 130 ? '...' : ''}"?`,
+            options,
+            correct: ['A', 'B', 'C', 'D'][options.findIndex(o => o.toLowerCase() === term.toLowerCase())] || 'A',
+            explanation: `Istilah yang paling sesuai adalah "${term}".`
+          });
+        }
+      }
+
+      if (questions.length < count && sentences.length) {
+        for (const sentence of sentences) {
+          if (questions.length >= count) break;
+          const term = terms.find(t => sentence.toLowerCase().includes(t.toLowerCase())) || terms[0];
+          if (!term) continue;
+          questions.push(makeMCFromSentence(sentence, term, terms));
+        }
+      }
+    } else if (type === 'essay') {
+      for (const term of terms) {
+        if (questions.length >= count) break;
+        const sentence = chooseRelevantSentence(clean, term);
+        questions.push({
+          type: 'essay',
+          question: `Jelaskan peran "${term}" dalam materi ini.`,
+          keyPoints: unique([term, ...terms.filter(t => t !== term).slice(0, 2)]),
+          modelAnswer: sentence || clean.slice(0, 500),
+          explanation: `Fokus jawaban ada pada "${term}" dan hubungan dengan poin terkait.`
+        });
+      }
+    } else if (type === 'benar_salah') {
+      for (const sentence of sentences) {
+        if (questions.length >= count) break;
+        const term = terms.find(t => sentence.toLowerCase().includes(t.toLowerCase()));
+        if (!term) continue;
+        questions.push({
+          type: 'benar_salah',
+          statement: sentence,
+          correct: true,
+          explanation: sentence
+        });
+
+        if (questions.length >= count) break;
+        const alt = pickDistractors(terms.filter(t => t !== term), term, 1)[0];
+        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const falseSentence = sentence.replace(new RegExp(escaped, 'i'), alt);
+        if (falseSentence !== sentence) {
+          questions.push({
+            type: 'benar_salah',
+            statement: falseSentence,
+            correct: false,
+            explanation: `Pernyataan ini salah. Yang benar berkaitan dengan "${term}".`
+          });
+        }
+      }
+    } else if (type === 'studi_kasus') {
+      for (const term of terms) {
+        if (questions.length >= count) break;
+        const sentence = chooseRelevantSentence(clean, term);
+        questions.push({
+          type: 'studi_kasus',
+          scenario: `Seorang mahasiswa menemui situasi yang menuntut pemahaman tentang "${term}". Konteks materi: "${sentence.slice(0, 140)}${sentence.length > 140 ? '...' : ''}"`,
+          question: 'Konsep apa yang paling tepat digunakan untuk menjawab kasus tersebut?',
+          options: shuffle([term, ...pickDistractors(terms.filter(t => t !== term), term, 3)].slice(0, 4)),
+          correct: 'A',
+          analysis: sentence,
+          explanation: `Kasus ini paling erat dengan "${term}".`
+        });
+      }
+    } else if (type === 'teka_teki') {
+      for (const sentence of sentences) {
+        if (questions.length >= count) break;
+        const term = terms.find(t => sentence.toLowerCase().includes(t.toLowerCase()));
+        if (!term) continue;
+        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const blanked = sentence.replace(new RegExp(`\\b${escaped}\\b`, 'i'), '_____');
+        questions.push({
+          type: 'teka_teki',
+          sentence: blanked,
+          blank: term,
+          hint: term.length > 6 ? `Dimulai dengan huruf "${term[0].toUpperCase()}"` : `Terdiri dari ${term.length} huruf`,
+          explanation: `Kata yang tepat adalah "${term}".`
+        });
+      }
+    } else if (type === 'ujian') {
+      const mc = buildContentQuestions(clean, Math.ceil(count / 2), 'pilgan', difficulty).map(q => ({ ...q, type: 'mc' }));
+      const es = buildContentQuestions(clean, Math.floor(count / 2), 'essay', difficulty).map(q => ({ ...q, type: 'essay' }));
+      return [...mc, ...es].slice(0, count);
+    }
+
+    return questions.slice(0, count);
+  }
+
+  OfflineAI.getKeyTerms = function (text) {
+    const terms = rankTerms(text).slice(0, 18);
+    if (terms.length) return terms;
+    return ['konsep utama', 'pembahasan', 'materi inti'];
+  };
+
+  OfflineAI.generate = function (text, count, difficulty, type) {
+    const source = safeText(text).substring(0, 12000);
+    const generated = buildContentQuestions(source, count, type, difficulty);
+    if (generated && generated.length) return generated;
+
+    const sentences = localSentences(source);
+    const terms = OfflineAI.getKeyTerms(source);
+    const fallback = [];
+    for (let i = 0; i < count; i++) {
+      const term = terms[i % terms.length] || `poin ${i + 1}`;
+      const sentence = sentences[i % sentences.length] || source.slice(0, 180) || `Materi membahas ${term}.`;
+      if (type === 'essay') {
+        fallback.push({
+          type: 'essay',
+          question: `Jelaskan keterkaitan "${term}" dengan materi.`,
+          keyPoints: [term],
+          modelAnswer: sentence,
+          explanation: sentence
+        });
+      } else if (type === 'benar_salah') {
+        fallback.push({
+          type: 'benar_salah',
+          statement: sentence,
+          correct: true,
+          explanation: sentence
+        });
+      } else if (type === 'teka_teki') {
+        const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        fallback.push({
+          type: 'teka_teki',
+          sentence: sentence.replace(new RegExp(`\\b${escaped}\\b`, 'i'), '_____'),
+          blank: term,
+          hint: term,
+          explanation: sentence
+        });
+      } else if (type === 'studi_kasus') {
+        fallback.push({
+          type: 'studi_kasus',
+          scenario: `Kasus pembelajaran terkait "${term}".`,
+          question: 'Konsep apa yang paling sesuai?',
+          options: shuffle([term, ...pickDistractors(terms.filter(t => t !== term), term, 3)].slice(0, 4)),
+          correct: 'A',
+          explanation: sentence
+        });
+      } else {
+        const options = shuffle([term, ...pickDistractors(terms.filter(t => t !== term), term, 3)].slice(0, 4));
+        fallback.push({
+          type: 'mc',
+          question: `Berdasarkan materi, istilah mana yang paling tepat: "${sentence.slice(0, 120)}${sentence.length > 120 ? '...' : ''}"?`,
+          options,
+          correct: 'A',
+          explanation: `Jawaban yang sesuai adalah "${term}".`
+        });
+      }
+    }
+    return fallback.slice(0, count);
+  };
+
+  window.generateQuizFromContent = async function (mat, count, difficulty, type) {
+    try {
+      const raw = (window.collectSourceText && mat) ? collectSourceText(mat) : '';
+      const fallback = safeText((mat?.content || mat?.summary || '') + '\n' + (Array.isArray(mat?.topics) ? mat.topics.join(' ') : ''));
+      const sourceText = safeText(raw || fallback || mat?.rawContent || mat?.content || mat?.summary || '');
+
+      if (!sourceText || sourceText.split(/\s+/).filter(Boolean).length < 12) {
+        showToast('Materi masih terlalu singkat. Pakai teks yang lebih lengkap supaya soal lebih sesuai.', 'error');
+        return;
+      }
+
+      if (typeof showQuizLoading === 'function') showQuizLoading(count, type);
+      await new Promise(r => setTimeout(r, 600));
+
+      let questions = [];
+      try {
+        questions = OfflineAI.generate(sourceText, count, difficulty, type) || [];
+      } catch (err) {
+        console.warn('Enhanced quiz generation failed:', err);
+      }
+
+      if (!Array.isArray(questions) || !questions.length) {
+        questions = OfflineAI.generate(sourceText, count, difficulty, 'pilgan') || [];
+      }
+
+      questions = Array.isArray(questions) ? questions.filter(Boolean).slice(0, count) : [];
+      if (!questions.length) {
+        showToast('Kuis belum berhasil dibuat. Coba gunakan materi yang lebih jelas.', 'error');
+        return;
+      }
+
+      currentQuestions = questions;
+      currentQIndex = 0;
+      quizAnswers = Array(currentQuestions.length).fill(null);
+      quizStartTime = Date.now();
+
+      if (typeof showQuizSection === 'function') showQuizSection();
+      else {
+        const setup = document.getElementById('quizSetupView');
+        const play = document.getElementById('quizPlayView');
+        const result = document.getElementById('quizResultView');
+        const review = document.getElementById('quizReviewView');
+        if (setup) setup.style.display = 'none';
+        if (play) play.style.display = 'block';
+        if (result) result.style.display = 'none';
+        if (review) review.style.display = 'none';
+      }
+
+      const typeNames = { pilgan:'Pilihan Ganda', essay:'Esai', benar_salah:'Benar/Salah', studi_kasus:'Studi Kasus', teka_teki:'Teka-Teki', ujian:'Ujian' };
+      const chip = document.getElementById('quizTypeChip');
+      if (chip) chip.textContent = typeNames[type] || 'Kuis';
+      const total = document.getElementById('qTotalNum');
+      if (total) total.textContent = String(currentQuestions.length);
+
+      const overlay = document.getElementById('quizGenLoading');
+      if (overlay) overlay.classList.remove('show');
+
+      requestAnimationFrame(() => {
+        if (typeof renderQuestion === 'function') renderQuestion();
+        else if (typeof renderQuestionSafe === 'function') renderQuestionSafe();
+      });
+    } catch (err) {
+      console.error('generateQuizFromContent override failed:', err);
+      const overlay = document.getElementById('quizGenLoading');
+      if (overlay) overlay.classList.remove('show');
+      showToast('Kuis gagal dibuat. Coba lagi dengan materi yang lebih jelas.', 'error');
+    }
+  };
+
+  window.generateQuiz = async function () {
+    const matId = parseInt(document.getElementById('quizMaterialSelect')?.value || '0', 10);
+    const count = parseInt(document.getElementById('quizCount')?.value || '10', 10);
+    const difficulty = document.getElementById('quizDifficulty')?.value || 'sedang';
+    const type = window.currentQuizType || 'pilgan';
+    quizTimerSetting = parseInt(document.getElementById('quizTimer')?.value || '0', 10);
+
+    if (!matId) {
+      showToast('Pilih materi terlebih dahulu', 'error');
+      return;
+    }
+
+    const mat = (typeof getMaterials === 'function' ? getMaterials() : []).find(m => m.id === matId);
+    if (!mat) {
+      showToast('Materi tidak ditemukan', 'error');
+      return;
+    }
+
+    currentMaterialId = matId;
+    await window.generateQuizFromContent(mat, count, difficulty, type);
+  };
+})();
+</script>
+
 </body>
 </html>
