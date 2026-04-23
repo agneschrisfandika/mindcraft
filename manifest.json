@@ -8,9 +8,10 @@
   "display": "standalone",
   "display_override": [
     "window-controls-overlay",
+    "browser",
     "standalone",
     "minimal-ui",
-    "browser"
+    "fullscreen"
   ],
   "background_color": "#000000",
   "theme_color": "#4F46E5",
