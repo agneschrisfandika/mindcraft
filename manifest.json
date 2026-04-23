@@ -3,7 +3,7 @@
   "name": "MindCraft",
   "short_name": "MindCraft",
   "description": "Aplikasi untuk mempermudah belajar bagi mahasiswa, pelajar maupun pengajar",
-  "start_url": "./index.html",
+  "start_url": "./mindcraft.html",
   "scope": "./",
   "display": "standalone",
   "display_override": [
@@ -23,7 +23,7 @@
   "handle_links": "preferred",
   "file_handlers": [
     {
-      "action": "./index.html",
+      "action": "./mindcraft.html",
       "accept": {
         "application/pdf": [".pdf"],
         "text/plain": [".txt"],
@@ -38,11 +38,11 @@
   "protocol_handlers": [
     {
       "protocol": "web+mindcraft",
-      "url": "./index.html?protocol=%s"
+      "url": "./mindcraft.html?protocol=%s"
     }
   ],
   "share_target": {
-    "action": "./index.html",
+    "action": "./mindcraft.html",
     "method": "POST",
     "enctype": "multipart/form-data",
     "params": {
@@ -71,7 +71,7 @@
     "preferred_width": 480
   },
   "note_taking": {
-    "new_note_url": "./index.html#new-note"
+    "new_note_url": "./mindcraft.html#new-note"
   },
   "scope_extensions": [],
   "icons": [
@@ -106,7 +106,7 @@
     {
       "name": "Buka Beranda",
       "short_name": "Home",
-      "url": "./index.html",
+      "url": "./mindcraft.html",
       "icons": [
         {
           "src": "icons/logo-mindcraft-192.png",
