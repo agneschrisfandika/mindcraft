@@ -102,9 +102,9 @@
       "form_factor": "narrow"
     },
     {
-    "src": "sicons/screenshotwide.jpg",
+    "src": "icons/screenshotwide.png",
     "sizes": "1919x814",
-    "type": "image/jpg",
+    "type": "image/png",
     "platform": "wide"
   }
   ],
