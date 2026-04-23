@@ -100,7 +100,13 @@
       "sizes": "1080x2400",
       "type": "image/png",
       "form_factor": "narrow"
-    }
+    },
+    {
+    "src": "sicons/screenshotwide.jpg",
+    "sizes": "1919x814",
+    "type": "image/jpg",
+    "platform": "wide"
+  }
   ],
   "shortcuts": [
     {
