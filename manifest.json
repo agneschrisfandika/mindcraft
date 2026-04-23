@@ -105,7 +105,8 @@
     "src": "icons/screenshotwide.png",
     "sizes": "1919x814",
     "type": "image/png",
-    "platform": "wide"
+    "platform": "wide",
+    "form_factor": "wide"
   }
   ],
   "shortcuts": [
