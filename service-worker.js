@@ -3,7 +3,7 @@ const BASE_URL = self.registration.scope;
 
 const urlsToCache = [
   `${BASE_URL}`,
-  `${BASE_URL}mindcraft.html`,
+  `${BASE_URL}index.html`,
   `${BASE_URL}offline.html`,
   `${BASE_URL}assets/style.css`,
   `${BASE_URL}manifest.json`,
